@@ -240,7 +240,7 @@ textarea {
     <canvas id="view"></canvas>
     <div class="hud">
       <div><div class="gen" id="hudGen">Two Lanes (measured)</div><div id="hudSeed">seed —</div></div>
-      <div class="hint">drag to orbit · double-click resets view<br>space play · R random · M mutate</div>
+      <div class="hint">drag to orbit · shift-drag to roll · double-click resets view<br>space play · R random · M mutate</div>
     </div>
   </main>
 
@@ -421,6 +421,10 @@ const SCHEMA = [
   { id: "spin", group: "motion", label: "Spin °/s", type: "range", min: -60, max: 60, step: 0.5, def: 0, r: [-15, 15], rp: 0.4 },
   { id: "yaw", group: "motion", label: "View yaw", type: "range", min: -180, max: 180, step: 0.5, def: 0, r: [-40, 40], rp: 0.3 },
   { id: "pitch", group: "motion", label: "View pitch", type: "range", min: -89, max: 89, step: 0.5, def: 0, r: [-60, 60], rp: 0.35 },
+  // Roll turns the finished view about the viewing direction (applied last), unlike Rotate, which
+  // turns the rings about their own axis before yaw and pitch. r: null keeps it out of randomize(),
+  // so adding it did not change what any existing seed produces.
+  { id: "roll", group: "motion", label: "View roll", type: "range", min: -180, max: 180, step: 0.5, def: 0, r: null },
   { id: "persp", group: "motion", label: "Perspective", type: "range", min: 0, max: 1, step: 0.01, def: 0, r: [0, 0.8], rp: 0.35,
     idle: p => (FLAT_GENS.has(p.gen) && p.yaw === 0 && p.pitch === 0) ? "No effect on a flat generator until the view is tilted with View yaw or View pitch." : null },
   { id: "zoom", group: "motion", label: "Zoom", type: "range", min: 0.3, max: 2.5, step: 0.01, def: 0.95, r: null },
@@ -736,7 +740,7 @@ function computeFrame(p, time, size, M) {
   const N = Math.round(p.rings);
   M = M || Math.round(p.res);
   const ctx = {
-    p, V: mat3(mat3(rx3(p.pitch), ry3(p.yaw)), rz3(p.rotate + p.spin * time)),
+    p, V: mat3(rz3(p.roll), mat3(mat3(rx3(p.pitch), ry3(p.yaw)), rz3(p.rotate + p.spin * time))),
     S: size * 0.44 * p.zoom, D: 2.4 + (1 - p.persp) * 40,
     mats: LINEAR_GENS.has(p.gen) ? linearMats(p, N, time) : null,
   };
@@ -994,22 +998,27 @@ window.addEventListener("keydown", e => {
 let drag = null;
 stage.addEventListener("pointerdown", e => {
   if (seq.playing) stopSeq();
-  drag = { x: e.clientX, y: e.clientY, yaw: params.yaw, pitch: params.pitch };
+  drag = { x: e.clientX, y: e.clientY, yaw: params.yaw, pitch: params.pitch, roll: params.roll, shift: e.shiftKey };
   stage.setPointerCapture(e.pointerId);
   stage.classList.add("dragging");
 });
 stage.addEventListener("pointermove", e => {
   if (!drag) return;
-  params.yaw = snap(BY_ID.yaw, ((drag.yaw + (e.clientX - drag.x) * 0.4 + 540) % 360) - 180);
-  params.pitch = snap(BY_ID.pitch, drag.pitch + (e.clientY - drag.y) * 0.4);
+  if (drag.shift) {
+    // Shift-drag rolls the view: horizontal movement turns the picture in the frame.
+    params.roll = snap(BY_ID.roll, ((drag.roll + (e.clientX - drag.x) * 0.4 + 540) % 360) - 180);
+  } else {
+    params.yaw = snap(BY_ID.yaw, ((drag.yaw + (e.clientX - drag.x) * 0.4 + 540) % 360) - 180);
+    params.pitch = snap(BY_ID.pitch, drag.pitch + (e.clientY - drag.y) * 0.4);
+  }
   dirty = true;
-  for (const id of ["yaw", "pitch"]) { const it = inputs[id]; it.el.value = params[id]; it.out.value = fmt(it.s, params[id]); }
+  for (const id of ["yaw", "pitch", "roll"]) { const it = inputs[id]; it.el.value = params[id]; it.out.value = fmt(it.s, params[id]); }
   updateIdle();
 });
 const endDrag = () => { if (drag) { drag = null; stage.classList.remove("dragging"); persist(); } };
 stage.addEventListener("pointerup", endDrag);
 stage.addEventListener("pointercancel", endDrag);
-stage.addEventListener("dblclick", () => { params.yaw = 0; params.pitch = 0; params.persp = BY_ID.persp.def; dirty = true; syncUI(); persist(); });
+stage.addEventListener("dblclick", () => { params.yaw = 0; params.pitch = 0; params.roll = 0; params.persp = BY_ID.persp.def; dirty = true; syncUI(); persist(); });
 
 // ---------- sequence ----------
 const seqCardsEl = document.getElementById("seqCards");

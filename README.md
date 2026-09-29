@@ -26,7 +26,7 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
   of the sequence.
 - **Settings code** copies the exact look as JSON so it can be pasted back later.
 
-Drag the canvas to orbit the view; double-click resets it. Space plays and pauses.
+Drag the canvas to orbit the view, shift-drag to roll it; double-click resets it. Space plays and pauses.
 
 ## Houdini
 
@@ -47,7 +47,7 @@ The curves carry `Cd`, `Alpha` and `width` per ring. Detail attributes hold the 
 plus `glow`, `trails`, `additive`, `bg` and a `label` naming the look or blend on screen, for use in
 a render setup.
 
-The view is baked into the geometry (the page's yaw, pitch, rotation and spin), and the camera sits
+The view is baked into the geometry (the page's yaw, pitch, roll, rotation and spin), and the camera sits
 on +Z at the page's perspective distance with a focal that reproduces its zoom. You can still
 orbit freely in the viewport. Blends happen in 3D: the rings blend, and the view blends separately,
 taking the short way round. The page blends flat pictures instead, so the two match exactly only
@@ -79,18 +79,25 @@ node test/dump-golden.js src/ring-loom.html > golden.json
 python houdini/test_parity.py golden.json
 ```
 
-That compares every parameter default and range, 168 look frames across all generators and base
-shapes, blends, and the sequence clock against numbers the page computes itself. After changing
-the page's maths, run it, then rebuild the SOP code and the example scene:
+That compares every parameter default and range, 177 look frames across all generators, base
+shapes and view angles (roll included), blends, and the sequence clock against numbers the page
+computes itself. After changing the page's maths, run it, then rebuild the SOP code and refresh
+the engine inside the example scene:
 
 ```bash
 python houdini/build_sop.py
-hython houdini/make_example_hip.py
+hython houdini/update_hip_code.py examples/ringloom_example.hip
 ```
 
-`make_example_hip.py` embeds the engine in the Python SOP, so a saved `.hip` works without this
-repo. It saves only after checking the SOP's geometry against the engine and the camera against
-the page's projection.
+A saved `.hip` carries its own copy of the engine in the Python SOP, so it works without this repo
+but does not pick up changes on its own. `update_hip_code.py` swaps the new code into every Ring
+Loom SOP in the scenes you give it and leaves the rest of each scene alone, the render setup
+included. It saves a scene only after that scene's SOP output for a rolled, tilted view matches
+the engine. Use it on your own scenes too.
+
+`make_example_hip.py` builds the example scene from scratch: the importer and camera only, with no
+render setup. It saves only after checking the SOP's geometry against the engine and the camera
+against the page's projection.
 
 ### Karma render
 
@@ -106,7 +113,7 @@ blurs everything. And because the lines fully transmit, the EXR's alpha is 0: th
 to go over black, as on the page.
 
 This render setup was built in the open scene, not by `make_example_hip.py`, so re-running that
-script produces a scene without it.
+script produces a scene without it. Use `update_hip_code.py` to bring the engine up to date.
 
 ## Layout
 

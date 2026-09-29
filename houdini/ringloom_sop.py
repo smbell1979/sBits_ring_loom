@@ -100,6 +100,7 @@ SCHEMA = [
     ("spin", "range", 0, -60, 60),
     ("yaw", "range", 0, -180, 180),
     ("pitch", "range", 0, -89, 89),
+    ("roll", "range", 0, -180, 180),
     ("persp", "range", 0, 0, 1),
     ("zoom", "range", 0.95, 0.3, 2.5),
     ("palette", "select", "ice", list(PALETTES)),
@@ -234,8 +235,9 @@ def rot_axis(ax, ang):
             z * x * C - y * s, z * y * C + x * s, c + z * z * C]
 
 
-def view_matrix(pitch, yaw, rot):
-    return mat3(mat3(rx3(pitch), ry3(yaw)), rz3(rot))
+def view_matrix(pitch, yaw, rot, roll=0.0):
+    # Roll is applied last: it turns the finished view about the viewing direction.
+    return mat3(rz3(roll), mat3(mat3(rx3(pitch), ry3(yaw)), rz3(rot)))
 
 
 def linear_mats(p, N, time):
@@ -358,7 +360,7 @@ def look3d(p, time, M=None):
     m = jsround(p["mirror"])
     return {
         "pre": pre, "rgb": rgb, "w": np.ones(N),
-        "view": {"pitch": p["pitch"], "yaw": p["yaw"], "rot": p["rotate"] + p["spin"] * time,
+        "view": {"pitch": p["pitch"], "yaw": p["yaw"], "roll": p["roll"], "rot": p["rotate"] + p["spin"] * time,
                  "D": 2.4 + (1 - p["persp"]) * 40, "zoom": p["zoom"]},
         "copies": [(i / m * TAU, 1.0) for i in range(m)],
         "look": {"width": p["width"], "alpha": p["alphaL"], "glow": p["glow"], "trails": p["trails"],
@@ -397,6 +399,7 @@ def blend3d(A, B, t):
                lerp(A["copies"][cia[i]][1] * cwa[i], B["copies"][cib[i]][1] * cwb[i], t)) for i in range(cn)]
     va, vb = A["view"], B["view"]
     view = {"pitch": lerp(va["pitch"], vb["pitch"], t), "yaw": _shortest(va["yaw"], vb["yaw"], t),
+            "roll": _shortest(va["roll"], vb["roll"], t),
             "rot": _shortest(va["rot"], vb["rot"], t), "D": lerp(va["D"], vb["D"], t), "zoom": lerp(va["zoom"], vb["zoom"], t)}
     la, lb = A["look"], B["look"]
     look = {k: lerp(la[k], lb[k], t) for k in ("width", "alpha", "glow", "trails")}
@@ -408,7 +411,7 @@ def blend3d(A, B, t):
 def apply_view(frame):
     """Rings rotated into the page's view: world points a camera on +Z sees as the page does."""
     v = frame["view"]
-    V = np.array(view_matrix(v["pitch"], v["yaw"], v["rot"])).reshape(3, 3)
+    V = np.array(view_matrix(v["pitch"], v["yaw"], v["rot"], v["roll"])).reshape(3, 3)
     return frame["pre"] @ V.T
 
 
