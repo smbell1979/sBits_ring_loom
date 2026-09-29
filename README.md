@@ -28,6 +28,51 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
 
 Drag the canvas to orbit the view; double-click resets it. Space plays and pauses.
 
+## Houdini
+
+`houdini/` brings a saved sequence into Houdini as real 3D curves. Open
+`examples/ringloom_example.hip`: `/obj/ringloom` plays `examples/example.ringloom.json`, and
+`/obj/ringloom_cam` shows it the way the page does.
+
+- **Sequence File:** any `.ringloom.json` from the page (Saved sequences > Save to file), or a saved
+  settings code.
+- **Look:** 0 plays the whole sequence; 1, 2, ... shows one look, still animating.
+- **FPS / Start Frame:** map sequence seconds to frames. The example is frames 1-432 at 24 fps, one
+  18 s loop.
+- **Points Per Ring, Scale, Render Resolution:** detail, world size, and the square camera
+  resolution. Render resolution also converts the page's line width (pixels) into the `width`
+  attribute.
+
+The curves carry `Cd`, `Alpha` and `width` per ring. Detail attributes hold the camera settings,
+plus `glow`, `trails`, `additive`, `bg` and a `label` naming the look or blend on screen, for use in
+a render setup.
+
+The view is baked into the geometry (the page's yaw, pitch, rotation and spin), and the camera sits
+on +Z at the page's perspective distance with a focal that reproduces its zoom. You can still
+orbit freely in the viewport. Blends happen in 3D: the rings blend, and the view blends separately,
+taking the short way round. The page blends flat pictures instead, so the two match exactly only
+when both looks share a view.
+
+The engine (`houdini/ringloom_engine.py`) is a port of the page's maths and is checked against it:
+
+```bash
+node test/dump-golden.js src/ring-loom.html > golden.json
+python houdini/test_parity.py golden.json
+```
+
+That compares every parameter default and range, 168 look frames across all generators and base
+shapes, blends, and the sequence clock against numbers the page computes itself. After changing
+the page's maths, run it, then rebuild the SOP code and the example scene:
+
+```bash
+python houdini/build_sop.py
+hython houdini/make_example_hip.py
+```
+
+`make_example_hip.py` embeds the engine in the Python SOP, so a saved `.hip` works without this
+repo. It saves only after checking the SOP's geometry against the engine and the camera against
+the page's projection.
+
 ## Layout
 
 - `src/ring-loom.html` - the page. This is the only file to edit.
