@@ -64,6 +64,10 @@ for (const [from, curve] of [["last", 1], ["first", 2.5], ["ends", 0.4], ["middl
 for (const [gen, extra] of [["slinky", { rings: 17 }], ["sphere", { rings: 13, alpha: 40 }], ["again", { rings: 21, squashA: 0.97 }], ["harmono", { rings: 9, decay: 0.2 }]]) {
   looks.push([`one full turn ${gen}`, Object.assign(t.defaults(), { gen, closed: true, drift: 0.4 }, extra)]);
 }
+// Loop colours, a gradient palette, Custom and Spectrum, with and without Cycle.
+for (const [pal, cycle] of [["viridis", 0], ["custom", 45], ["spectrum", 0], ["spectrum", 70], ["infrared", -30]]) {
+  looks.push([`loop colours ${pal} ${cycle}`, Object.assign(t.defaults(), { gen: "slinky", closed: true, rings: 15, loopColors: true, palette: pal, cycle })]);
+}
 // Typed values between the sliders' steps (the page keeps them exactly).
 looks.push(["typed off-step values", Object.assign(t.defaults(), { gen: "again", roll: 12.37, yaw: -7.33, pitch: 3.14159, twist: 45.125, squash: 0.9137, zoom: 1.0625 })]);
 looks.push(["roll+mirror", Object.assign(t.defaults(), { gen: "slinky", roll: 75, pitch: 30, mirror: 5, rings: 20 })]);

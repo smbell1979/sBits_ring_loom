@@ -356,6 +356,28 @@ setTimeout(() => {
     }
   }
 
+  // ---- loop colours ----
+  {
+    // Colour step between neighbouring rings, including last -> first (the seam).
+    const steps = (p, time = 0) => {
+      const f = t.computeFrame(Object.assign(t.defaults(), { gen: "slinky", closed: true, rings: 16, spread: 1 }, p), time, size, 32);
+      const c = f.rings.map(r => r.rgb), n = c.length;
+      const d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+      const inner = c.slice(0, -1).map((x, i) => d(x, c[i + 1]));
+      return { seam: d(c[n - 1], c[0]), largestInner: Math.max(...inner) };
+    };
+    const rows = [["viridis", {}], ["custom", {}], ["ember", {}], ["spectrum", {}], ["viridis, Cycle 90 at 1.3 s", { cycle: 90 }, 1.3]]
+      .map(([name, extra, time]) => {
+        const pal = name.split(",")[0];
+        return { name, off: steps(Object.assign({ palette: pal }, extra), time), on: steps(Object.assign({ palette: pal, loopColors: true }, extra), time) };
+      });
+    check("loop colours: no seam where the last ring meets the first (off: a jump)",
+      // The "off" half shows the seam exists: for gradient palettes with Cycle at 0. (While Cycle
+      // runs, the off-mode seam moves through the ping-pong and is sometimes small.)
+      rows.every(r => r.on.seam <= r.on.largestInner * 1.001 + 1e-9) && rows.filter(r => !r.name.startsWith("spectrum") && !r.name.includes("Cycle")).every(r => r.off.seam > 3 * r.off.largestInner),
+      rows.map(r => `${r.name}: seam ${r.off.seam.toFixed(0)} -> ${r.on.seam.toFixed(1)} (largest neighbour step ${r.on.largestInner.toFixed(1)})`).join("; "));
+  }
+
   // ---- typed values beside the sliders ----
   {
     const S = t.BY_ID, rd = (id, txt) => t.readTyped(S[id], txt);

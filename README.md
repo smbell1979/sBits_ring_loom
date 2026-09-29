@@ -52,6 +52,9 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
   exactly one cycle, spaced evenly by the ring count, so the last ring never lands on the first
   (Turns, Sweep, Turn / ring and Phase / ring space rings first-to-last inclusive, so at exactly
   one cycle the last ring doubled the first). Add rings and the spacing adjusts.
+- **Loop colours:** the colours go round the rings and join up, through the palette and back
+  (Spectrum: once round the hue wheel), so a closed circle of rings has no seam where the last
+  ring's colour meets the first's. Cycle moves them round the loop; Spread isn't used.
 - **Ring fade** dims the rings along a ramp: the amount (0 off, 1 fades the far end out), a
   **Fade curve** that works like a gamma (1 straight; above 1 the fade comes late and steep, below
   1 early), and which rings fade: the last, the first, both ends, or the middle. It sets each

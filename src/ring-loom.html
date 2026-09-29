@@ -481,7 +481,13 @@ const SCHEMA = [
   { id: "palette", group: "look", label: "Colour", type: "select", options: paletteLabels, def: "ice" },
   { id: "colorA", group: "look", label: "Colour A", type: "color", def: "#ff2e88", when: p => p.palette === "custom" },
   { id: "colorB", group: "look", label: "Colour B", type: "color", def: "#35ffd2", when: p => p.palette === "custom" },
-  { id: "spread", group: "look", label: "Spread", type: "range", min: 0, max: 3, step: 0.01, def: 1, r: [0.3, 2] },
+  { id: "spread", group: "look", label: "Spread", type: "range", min: 0, max: 3, step: 0.01, def: 1, r: [0.3, 2],
+    idle: p => p.loopColors ? "Loop colours goes exactly once round the rings." : null },
+  // Loop colours: the ramp goes round the rings and joins up (colourU, makeColorFn), so the last
+  // ring sits next to a colour like the first's -- for a closed circle of rings (One full turn),
+  // where the ramp's two ends otherwise meet. Not randomized (toggles never are): seeds unchanged.
+  { id: "loopColors", group: "look", label: "Loop colours", type: "toggle", def: false,
+    tip: "Colours go round the rings and join up: through the palette and back (Spectrum: once round the hue wheel), so the last ring's colour meets the first's without a seam." },
   { id: "cycle", group: "look", label: "Cycle °/s", type: "range", min: -120, max: 120, step: 1, def: 0, r: [-60, 60], rp: 0.6 },
   { id: "width", group: "look", label: "Line width", type: "range", min: 0.25, max: 5, step: 0.05, def: 1.1, r: [0.5, 2.2] },
   { id: "alphaL", group: "look", label: "Opacity", type: "range", min: 0.05, max: 1, step: 0.01, def: 0.85, r: [0.4, 1] },
@@ -696,14 +702,22 @@ function hslToRgb(h, s, l) {
   const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
   return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
 }
+// Ring k's place along the colours, for makeColorFn.
+const colourU = (p, k, N) => p.loopColors ? k / N : N > 1 ? k / (N - 1) : 0;
 // Returns ring position u (0 outer .. 1 inner) -> [r, g, b]. RGB rather than hex so that
 // sequence blends can interpolate colour per ring.
+// Loop colours: u is the ring's place around the loop, k / N (never reaching 1), and the ramp goes
+// out and back over it (x 0 -> 2; the ping-pong below has period 2), or for Spectrum once round the
+// full hue wheel, so ring N would get ring 0's colour and the last ring sits beside a near match.
+// Cycle moves the colours round the loop, one lap per 360. Otherwise u runs 0 -> 1 first to last.
 function makeColorFn(p, time) {
   const shift = time * p.cycle / 360;
-  if (p.palette === "spectrum") return u => hslToRgb((u * p.spread + shift) * 300, 0.95, 0.62);
+  if (p.palette === "spectrum") {
+    return p.loopColors ? u => hslToRgb((u + shift) * 360, 0.95, 0.62) : u => hslToRgb((u * p.spread + shift) * 300, 0.95, 0.62);
+  }
   const stops = (p.palette === "custom" ? [p.colorA, p.colorB] : PALETTES[p.palette].stops).map(hexToRgb);
   return u => {
-    const x = u * p.spread + shift;
+    const x = p.loopColors ? 2 * (u + shift) : u * p.spread + shift;
     let t = x - Math.floor(x);
     if (((Math.floor(x) % 2) + 2) % 2 === 1) t = 1 - t;  // ping-pong so cycling has no seam
     if (stops.length === 1) return stops[0].slice();
@@ -894,7 +908,7 @@ function look3d(p, time, M) {
   const ang = { pitch: p.pitch, yaw: p.yaw, roll: p.roll, rot: p.rotate + p.spin * time };
   const rings = [];
   for (let k = 0; k < N; k++) {
-    rings.push({ pre: ringPre(k, N, M, time, ctx), rgb: color(N > 1 ? k / (N - 1) : 0), w: fadeWeight(p, k, N), ang });
+    rings.push({ pre: ringPre(k, N, M, time, ctx), rgb: color(colourU(p, k, N)), w: fadeWeight(p, k, N), ang });
   }
   return {
     rings, time,
@@ -1312,14 +1326,14 @@ function drawRamp(time) {
   if (!w || !h || !fh) return;  // the Look panel is collapsed
   const N = Math.max(1, Math.round(params.rings));
   const shift = params.cycle ? time * params.cycle / 360 : 0;
-  const key = [w, h, fh, N, params.palette, params.spread, params.colorA, params.colorB, shift, params.fade, params.fadeCurve, params.fadeFrom].join("|");
+  const key = [w, h, fh, N, params.palette, params.spread, params.colorA, params.colorB, shift, params.loopColors, params.fade, params.fadeCurve, params.fadeFrom].join("|");
   if (key === rampKey) return;
   rampKey = key;
   for (const [v, vh] of [[cv, h], [fv, fh]]) { if (v.width !== w) v.width = w; if (v.height !== vh) v.height = vh; }
   const c = cv.getContext("2d"), fc = fv.getContext("2d"), color = makeColorFn(params, time);
   for (let k = 0; k < N; k++) {
     const x0 = Math.round(k * w / N), x1 = Math.round((k + 1) * w / N), sw = Math.max(1, x1 - x0);
-    c.fillStyle = rgbToHex(...color(N > 1 ? k / (N - 1) : 0));
+    c.fillStyle = rgbToHex(...color(colourU(params, k, N)));
     c.fillRect(x0, 0, sw, h);
     const g = 255 * clamp(fadeWeight(params, k, N), 0, 1);
     fc.fillStyle = rgbToHex(g, g, g);

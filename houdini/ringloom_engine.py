@@ -120,6 +120,7 @@ SCHEMA = [
     ("colorA", "color", "#ff2e88"),
     ("colorB", "color", "#35ffd2"),
     ("spread", "range", 1, 0, 3),
+    ("loopColors", "toggle", False),
     ("cycle", "range", 0, -120, 120),
     ("width", "range", 1.1, 0.25, 5),
     ("alphaL", "range", 0.85, 0.05, 1),
@@ -259,14 +260,22 @@ def hsl_to_rgb(h, s, l):
     return [(r + m) * 255, (g + m) * 255, (b + m) * 255]
 
 
+def colour_u(p, k, N):
+    """Ring k's place along the colours (page colourU): k / N round a loop, else 0 -> 1."""
+    return k / N if p["loopColors"] else (k / (N - 1) if N > 1 else 0)
+
+
 def make_color_fn(p, time):
+    """Page makeColorFn, including Loop colours (out and back over the loop; Spectrum once round)."""
     shift = time * p["cycle"] / 360
     if p["palette"] == "spectrum":
+        if p["loopColors"]:
+            return lambda u: hsl_to_rgb((u + shift) * 360, 0.95, 0.62)
         return lambda u: hsl_to_rgb((u * p["spread"] + shift) * 300, 0.95, 0.62)
     stops = [hex_to_rgb(h) for h in ([p["colorA"], p["colorB"]] if p["palette"] == "custom" else PALETTES[p["palette"]])]
 
     def fn(u):
-        x = u * p["spread"] + shift
+        x = 2 * (u + shift) if p["loopColors"] else u * p["spread"] + shift
         t = x - math.floor(x)
         if math.floor(x) % 2 == 1:  # ping-pong so cycling has no seam
             t = 1 - t
@@ -454,7 +463,7 @@ def look3d(p, time, M=None):
     mats = linear_mats(p, N, time) if p["gen"] in ("cover", "again", "blend") else None
     color = make_color_fn(p, time)
     pre = np.stack([ring_world(p, k, N, M, time, mats) for k in range(N)])
-    rgb = np.array([color(k / (N - 1) if N > 1 else 0) for k in range(N)], dtype=np.float64)
+    rgb = np.array([color(colour_u(p, k, N)) for k in range(N)], dtype=np.float64)
     m = jsround(p["mirror"])
     return {
         "pre": pre, "rgb": rgb, "w": fade_weights(p, N),
