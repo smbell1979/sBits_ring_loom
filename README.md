@@ -16,7 +16,10 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
 - **Randomize** (R) rolls a reproducible look from a seed; **Mutate** (M) nudges the current one.
 - **Sequence:** add looks as cards, give each a hold time, a blend time and an easing, and play
   them in a loop. Blends morph every ring point into the next look while both keep animating, so
-  generator, base-shape and ring-count changes read as motion. When ring or kaleidoscope counts
+  generator, base-shape and ring-count changes read as motion. They work in 3D: ring shapes mix
+  before the view is applied, and the view mixes as angles (Rotate, yaw and roll the short way
+  round, spin as a speed), so a view change between looks is a real turn rather than a flat
+  picture squashing through the middle. Perspective and zoom mix for the whole picture. When ring or kaleidoscope counts
   differ, the extra copies split out of their nearest neighbour instead of fading in; the only
   setting that switches outright is Light blend, at the midpoint. Colours (rings and background)
   mix in OKLCH, the hue taking the short way round, so opposite colours stay vivid and even in
@@ -68,12 +71,9 @@ a render setup.
 
 The view is baked into the geometry (the page's yaw, pitch, roll, rotation and spin), and the camera sits
 on +Z at the page's perspective distance with a focal that reproduces its zoom. You can still
-orbit freely in the viewport. Blends happen in 3D: the rings blend, and the view blends separately,
-taking the short way round (plus the card's extra roll turns); stagger and swirl work as on the
-page. The page blends flat pictures and then turns them by the blended roll, so the two match
-exactly when both looks share yaw, pitch and zoom; roll may differ. (With stagger, the page resizes
-each ring on its own clock, while in Houdini zoom belongs to the camera and changes for all rings
-at once.)
+orbit freely in the viewport. Blends work exactly as on the page (both blend in 3D), so the
+importer matches the page on every blend, including view changes, turns, stagger and swirl;
+perspective and zoom blend on the camera.
 
 ### Karma render
 

@@ -61,10 +61,8 @@ for (const [name, p] of looks) {
   for (const tau of [0, 2.37, 7.9]) cases.push({ name, params: p, tau, frame: frameOut(t.computeFrame(p, tau, SIZE, M)) });
 }
 
-// Blends with identical yaw, pitch and perspective on flat generators: there the page's
-// screen-space blend and the Houdini 3D blend must agree exactly (projection is linear when every
-// point has z = 0). Roll may differ: both sides turn the picture, so the rolled pairs check that
-// the two agree on the path, the short way round and with extra whole turns.
+// Blends. Both sides blend in 3D (ring shapes, then view angles), so they must agree exactly for
+// any pair: same view or not, flat or 3D generators, with turns, stagger and swirl.
 const flat = (extra) => Object.assign(t.defaults(), { yaw: 0, pitch: 0, persp: 0, rotate: 30, spin: 5 }, extra);
 const blendPairs = [
   ["cover19->again54", flat({ gen: "cover", rings: 19 }), flat({ gen: "again", rings: 54, base: "star", sides: 5 })],
@@ -76,9 +74,16 @@ const blendPairs = [
   ["roll -1 turn", flat({ gen: "harmono", rings: 12, roll: 90 }), flat({ gen: "blend", rings: 30, roll: 90 }), { turns: -1 }],
   // Stagger with a roll change: each ring must turn on its own clock, on both sides.
   ["stagger + roll", flat({ gen: "cover", rings: 19, roll: -60 }), flat({ gen: "again", rings: 30, roll: 45 }), { stagger: 0.7, ease: "smooth" }],
-  // Zoom is shared here on purpose: in Houdini it is the camera's, so it changes for all rings at
-  // once, while the page resizes each staggered ring on its own clock.
-  ["stagger reversed", flat({ gen: "blend", rings: 25, mirror: 2, zoom: 1.3 }), flat({ gen: "cover", rings: 19, zoom: 1.3 }), { stagger: -0.4, ease: "in" }],
+  ["stagger reversed", flat({ gen: "blend", rings: 25, mirror: 2 }), flat({ gen: "cover", rings: 19, zoom: 1.3 }), { stagger: -0.4, ease: "in" }],
+  // Views that differ, on 3D generators.
+  ["yaw, pitch, perspective change", flat({ gen: "sphere", rings: 14, yaw: -60, pitch: 20, persp: 0.6 }),
+    flat({ gen: "slinky", rings: 20, yaw: 70, pitch: -40, persp: 0.2, zoom: 1.2 }), { ease: "smooth" }],
+  // Rotate 180 apart, and spins whose gap (70 deg/s x 3.1 s = 217 deg) is past 180: taking the short
+  // way between the current angles would go the other way round from the true blend.
+  ["rotate 180 + spin gap past 180", flat({ gen: "cover", rings: 19, rotate: -90, spin: 30 }),
+    flat({ gen: "sphere", rings: 12, rotate: 90, spin: -40, pitch: 35 }), {}],
+  ["stagger + views", flat({ gen: "slinky", rings: 20, yaw: 30, pitch: 50, zoom: 1.2, persp: 0.8 }),
+    flat({ gen: "harmono", rings: 12, yaw: -120, pitch: -10, zoom: 0.8 }), { stagger: 0.6, ease: "smooth", turns: -1 }],
   ["swirl", flat({ gen: "again", rings: 24, base: "star", sides: 5 }), flat({ gen: "cover", rings: 19 }), { swirl: 270, ease: "smooth" }],
   ["swirl zoomed", flat({ gen: "blend", rings: 25, zoom: 1.6 }), flat({ gen: "blend", rings: 25, zoom: 1.6, phase: -90 }), { swirl: -405 }],
   ["all together", flat({ gen: "harmono", rings: 12, roll: 20, mirror: 4 }), flat({ gen: "cover", rings: 19, roll: -100 }), { turns: 1, stagger: -0.55, swirl: 180, ease: "out" }],

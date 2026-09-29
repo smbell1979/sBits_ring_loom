@@ -760,9 +760,10 @@ function baseXY(th, c, s, p, e) {
   }
 }
 
-function ringPoints(k, N, M, time, ctx) {
+// One ring's points before the view: x, y, z per point (the last repeats the first).
+function ringPre(k, N, M, time, ctx) {
   const p = ctx.p, u = N > 1 ? k / (N - 1) : 0;
-  const out = new Float32Array(2 * (M + 1));
+  const out = new Float64Array(3 * (M + 1));
   const e = 2 / p.superexp, lobes = Math.round(p.lobes), wob = p.wobble;
   const wph = TAU * p.ringPhase * k + p.wobbleSpeed * time;
   let lin = null, R3 = null, harm = null, sl = null;
@@ -776,7 +777,6 @@ function ringPoints(k, N, M, time, ctx) {
     const ph = TAU * p.loops * u + p.drift * time * 0.4, tl = p.tilt * D2R, c = Math.cos(ph), s = Math.sin(ph);
     sl = { cx: p.orbitR * c, cy: p.orbitR * s, e1: [c, s, 0], e2: [-s * Math.cos(tl), c * Math.cos(tl), Math.sin(tl)], r: p.ringR };
   }
-  const V = ctx.V, S = ctx.S, D = ctx.D;
   for (let j = 0; j <= M; j++) {
     const th = j === M ? 0 : (j / M) * TAU;
     const c = Math.cos(th), s = Math.sin(th);
@@ -792,10 +792,7 @@ function ringPoints(k, N, M, time, ctx) {
       y = sl.cy + sl.r * (px * sl.e1[1] + py * sl.e2[1]);
       z = sl.r * (px * sl.e1[2] + py * sl.e2[2]);
     }
-    const X = V[0] * x + V[1] * y + V[2] * z, Y = V[3] * x + V[4] * y + V[5] * z, Z = V[6] * x + V[7] * y + V[8] * z;
-    const f = D / Math.max(0.25, D - Z);
-    out[2 * j] = X * f * S;
-    out[2 * j + 1] = -Y * f * S;
+    out[3 * j] = x; out[3 * j + 1] = y; out[3 * j + 2] = z;
   }
   return out;
 }
@@ -825,29 +822,62 @@ new ResizeObserver(resize).observe(stage);
 const LINEAR_GENS = new Set(["cover", "again", "blend"]);
 const evenCopies = m => Array.from({ length: m }, (_, i) => ({ angle: (i / m) * TAU, w: 1 }));
 
-// One look at one moment, as data: every ring as screen-space points (CSS px about the centre)
-// with its colour and brightness share, plus the look's drawing settings. Sequence blends work on
-// these, which is what lets a generator, base-shape or ring-count change morph instead of switch.
-// M forces a point count so two frames being blended line up point for point.
-function computeFrame(p, time, size, M) {
+// A frame is built in two stages, so sequence blends can work in 3D:
+//   look3d   one look at one moment: every ring's points before the view (x, y, z), with colour,
+//            brightness share and view angles, plus the camera (distance, zoom) and drawing settings.
+//   project  turns each ring by its view angles and flattens it to screen points (CSS px about
+//            the centre) with the page's perspective.
+// Blends mix two look3d frames -- ring shapes in 3D, view angles as angles -- and then project, so
+// a change of Rotate, spin, yaw or pitch between looks is a real turn. (Mixing the flat pictures
+// instead slid every point in a straight line: a 180-degree Rotate change collapsed the picture to
+// a dot mid-blend, a 180-degree yaw on a 3D shape flattened it to a line.)
+// M forces a point count so two looks being blended line up point for point.
+function look3d(p, time, M) {
   const N = Math.round(p.rings);
   M = M || Math.round(p.res);
-  const ctx = {
-    p, V: mat3(rz3(p.roll), mat3(mat3(rx3(p.pitch), ry3(p.yaw)), rz3(p.rotate + p.spin * time))),
-    S: size * 0.44 * p.zoom, D: 2.4 + (1 - p.persp) * 40,
-    mats: LINEAR_GENS.has(p.gen) ? linearMats(p, N, time) : null,
-  };
+  const ctx = { p, mats: LINEAR_GENS.has(p.gen) ? linearMats(p, N, time) : null };
   const color = makeColorFn(p, time);
+  // One shared object: project() turns every ring the same way without rebuilding the matrix.
+  const ang = { pitch: p.pitch, yaw: p.yaw, roll: p.roll, rot: p.rotate + p.spin * time };
   const rings = [];
   for (let k = 0; k < N; k++) {
-    rings.push({ pts: ringPoints(k, N, M, time, ctx), rgb: color(N > 1 ? k / (N - 1) : 0), w: 1 });
+    rings.push({ pre: ringPre(k, N, M, time, ctx), rgb: color(N > 1 ? k / (N - 1) : 0), w: 1, ang });
   }
   return {
-    rings,
+    rings, time,
+    view: { pitch: p.pitch, yaw: p.yaw, roll: p.roll, rotate: p.rotate, spin: p.spin },
+    cam: { D: 2.4 + (1 - p.persp) * 40, zoom: p.zoom },
     look: { width: p.width, alpha: p.alphaL, glow: p.glow, trails: p.trails, additive: p.additive,
             bg: hexToRgb(p.bg), copies: evenCopies(Math.round(p.mirror)) },
   };
 }
+function project(f3, size) {
+  const S = size * 0.44 * f3.cam.zoom, D = f3.cam.D;
+  let angOf = null, V = null;
+  const rings = f3.rings.map(r => {
+    if (r.ang !== angOf) {
+      const a = r.ang;
+      V = mat3(rz3(a.roll), mat3(mat3(rx3(a.pitch), ry3(a.yaw)), rz3(a.rot)));
+      angOf = a;
+    }
+    // r.pre is either the points, or { a, b, t }: two rings' points mixed t of the way (a blend).
+    const mix = !(r.pre instanceof Float64Array), q = mix ? r.pre.a : r.pre, qb = mix ? r.pre.b : null, tm = mix ? r.pre.t : 0;
+    const n = q.length / 3, pts = new Float32Array(2 * n);
+    for (let j = 0; j < n; j++) {
+      let x = q[3 * j], y = q[3 * j + 1], z = q[3 * j + 2];
+      if (mix) { x += (qb[3 * j] - x) * tm; y += (qb[3 * j + 1] - y) * tm; z += (qb[3 * j + 2] - z) * tm; }
+      const X = V[0] * x + V[1] * y + V[2] * z, Y = V[3] * x + V[4] * y + V[5] * z, Z = V[6] * x + V[7] * y + V[8] * z;
+      const f = D / Math.max(0.25, D - Z);
+      pts[2 * j] = X * f * S;
+      pts[2 * j + 1] = -Y * f * S;
+    }
+    return { pts, rgb: r.rgb, w: r.w };
+  });
+  return { rings, look: f3.look };
+}
+// One look at one moment as a screen frame: every ring's points, colour and brightness share, plus
+// the look's drawing settings.
+function computeFrame(p, time, size, M) { return project(look3d(p, time, M), size); }
 
 // Pairs two lists of different lengths without fading anything in or out. The longer list sets
 // the count; each element of the shorter one is shared by the run of elements mapped onto it.
@@ -861,15 +891,32 @@ function pairUp(na, nb) {
   return { n, ia, ib, wa: ia.map(k => 1 / da[k]), wb: ib.map(k => 1 / db[k]) };
 }
 
-// ringT (optional): each output ring's own progress, for staggered blends.
-function blendFrames(fa, fb, t, ringT) {
+// Two look3d frames (built at the same moment) mixed t of the way, as a look3d frame. ringT
+// (optional): each output ring's own progress, for staggered blends; turns: extra roll turns.
+// Each ring's shape mixes in 3D and its view angles as angles, on that ring's own progress, so
+// staggered rings turn into place one by one:
+//   yaw, Rotate, roll  the short way round (roll plus the card's turns)
+//   pitch              straight (it only runs -89..89)
+//   spin               mixed as a speed and applied to the shared clock: the looks' current angles
+//                      drift apart as they spin, so taking "the short way" between those would
+//                      flip direction, and jump, whenever the gap passed 180 degrees
+// The camera (distance, zoom) and drawing settings follow the overall progress t: in Houdini the
+// camera is one object, and this keeps the two matching exactly.
+function blendFrames(fa, fb, t, ringT, turns) {
   const R = pairUp(fa.rings.length, fb.rings.length);
+  const va = fa.view, vb = fb.view, time = fa.time;
   const rings = [];
   for (let i = 0; i < R.n; i++) {
     const a = fa.rings[R.ia[i]], b = fb.rings[R.ib[i]], tr = ringT ? ringT[i] : t;
-    const pts = new Float32Array(a.pts.length);
-    for (let j = 0; j < pts.length; j++) pts[j] = a.pts[j] + (b.pts[j] - a.pts[j]) * tr;
-    rings.push({ pts, rgb: mixColour(a.rgb, b.rgb, tr), w: lerp(a.w * R.wa[i], b.w * R.wb[i], tr) });
+    // The shape isn't mixed here: project() mixes a.pre and b.pre as it reads them, which saves
+    // allocating a blended copy of every ring every frame (a quarter of a heavy blend's time).
+    const pre = { a: a.pre, b: b.pre, t: tr };
+    const ang = {
+      pitch: lerp(va.pitch, vb.pitch, tr), yaw: rollBetween(va.yaw, vb.yaw, tr, 0),
+      roll: rollBetween(va.roll, vb.roll, tr, turns),
+      rot: rollBetween(va.rotate, vb.rotate, tr, 0) + time * lerp(va.spin, vb.spin, tr),
+    };
+    rings.push({ pre, rgb: mixColour(a.rgb, b.rgb, tr), w: lerp(a.w * R.wa[i], b.w * R.wb[i], tr), ang });
   }
   const la = fa.look, lb = fb.look, C = pairUp(la.copies.length, lb.copies.length);
   const copies = [];
@@ -878,7 +925,8 @@ function blendFrames(fa, fb, t, ringT) {
     copies.push({ angle: lerp(a.angle, b.angle, t), w: lerp(a.w * C.wa[i], b.w * C.wb[i], t) });
   }
   return {
-    rings,
+    rings, time,
+    cam: { D: lerp(fa.cam.D, fb.cam.D, t), zoom: lerp(fa.cam.zoom, fb.cam.zoom, t) },
     look: {
       width: lerp(la.width, lb.width, t), alpha: lerp(la.alpha, lb.alpha, t),
       glow: lerp(la.glow, lb.glow, t), trails: lerp(la.trails, lb.trails, t),
@@ -890,10 +938,8 @@ function blendFrames(fa, fb, t, ringT) {
 }
 
 // Roll is applied after everything else and perspective depends only on depth, so rolling the view
-// is exactly a turn of the finished screen image. That lets a blend turn the picture instead of
-// sliding points straight across (which squashes rings through the middle): morph the two looks
-// with roll taken out, then turn the result by an angle that travels between the two rolls.
-// Positive angles turn counter-clockwise on screen, as the Roll slider does.
+// is exactly a turn of the finished screen image (rollFrame; the checks rely on it). Positive
+// angles turn counter-clockwise on screen, as the Roll slider does.
 //
 // twistFrame turns each ring i about the centre by roll(i) degrees, plus, for a swirl, swirl(i)
 // degrees scaled by 1 / (1 + r^2), r being the point's distance from the centre in units of
@@ -939,18 +985,16 @@ function ringProgress(u, n, stagger, ease) {
   });
 }
 // Look pa morphing into look pb at raw blend time u (0-1), shaped by the card `how`: its easing,
-// extra roll turns, stagger and swirl. Rings, colours and roll follow each ring's own progress;
-// the kaleidoscope and drawing settings follow the overall one.
+// extra roll turns, stagger and swirl. Ring shapes, colours and view angles follow each ring's own
+// progress; the camera, kaleidoscope and drawing settings follow the overall one.
 function morphFrame(pa, pb, time, size, M, u, how = {}) {
   const ease = (EASES[how.ease] || EASES.linear).f, e = ease(u);
-  const flat = p => p.roll ? Object.assign({}, p, { roll: 0 }) : p;
-  const fa = computeFrame(flat(pa), time, size, M), fb = computeFrame(flat(pb), time, size, M);
+  const fa = look3d(pa, time, M), fb = look3d(pb, time, M);
   const ringE = ringProgress(u, Math.max(fa.rings.length, fb.rings.length), how.stagger, ease);
-  const ei = ringE ? i => ringE[i] : () => e;
-  const f = blendFrames(fa, fb, e, ringE);
+  const f = project(blendFrames(fa, fb, e, ringE, how.turns), size);
+  if (!how.swirl) return f;
   // Swirl peaks mid-blend and is gone as each ring arrives.
-  return twistFrame(f, size, i => rollBetween(pa.roll, pb.roll, ei(i), how.turns),
-    how.swirl ? i => how.swirl * Math.sin(Math.PI * ei(i)) : null);
+  return twistFrame(f, size, () => 0, i => how.swirl * Math.sin(Math.PI * (ringE ? ringE[i] : e)));
 }
 
 function renderFrame(f) {

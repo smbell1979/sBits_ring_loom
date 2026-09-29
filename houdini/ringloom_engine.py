@@ -429,7 +429,9 @@ def look3d(p, time, M=None):
     m = jsround(p["mirror"])
     return {
         "pre": pre, "rgb": rgb, "w": np.ones(N),
+        # rotate and spin are kept apart (with time) for blends; rot is the angle actually used.
         "view": {"pitch": p["pitch"], "yaw": p["yaw"], "roll": p["roll"], "rot": p["rotate"] + p["spin"] * time,
+                 "rotate": p["rotate"], "spin": p["spin"], "time": time,
                  "D": 2.4 + (1 - p["persp"]) * 40, "zoom": p["zoom"]},
         "copies": [(i / m * TAU, 1.0) for i in range(m)],
         "look": {"width": p["width"], "alpha": p["alphaL"], "glow": p["glow"], "trails": p["trails"],
@@ -478,8 +480,11 @@ def ring_progress(u, n, stagger, ease):
 
 def blend3d(A, B, u, turns=0, stagger=0.0, swirl=0.0, ease="linear"):
     """A morphing into B at raw blend time u, with the card's ease, extra roll turns, stagger and
-    swirl (page morphFrame). Rings, colours and roll follow each ring's own progress; the view
-    angles and drawing settings follow the overall eased progress."""
+    swirl (page morphFrame, blendFrames). Ring shapes, colours and view angles follow each ring's
+    own progress; the camera (distance, zoom) and drawing settings follow the overall eased
+    progress. Spin is mixed as a speed on the shared clock, not as the looks' current angles,
+    which drift apart as they spin (taking the short way between those jumps once the gap passes
+    180 degrees)."""
     t = EASES[ease](u)
     n, ia, ib, wa, wb = pair_up(len(A["w"]), len(B["w"]))
     te = ring_progress(u, n, stagger, ease)
@@ -491,10 +496,12 @@ def blend3d(A, B, u, turns=0, stagger=0.0, swirl=0.0, ease="linear"):
     copies = [(lerp(A["copies"][cia[i]][0], B["copies"][cib[i]][0], t),
                lerp(A["copies"][cia[i]][1] * cwa[i], B["copies"][cib[i]][1] * cwb[i], t)) for i in range(cn)]
     va, vb = A["view"], B["view"]
-    view = {"pitch": lerp(va["pitch"], vb["pitch"], t), "yaw": _shortest(va["yaw"], vb["yaw"], t),
-            # Per ring, so staggered rings turn into place one after another.
+    # Angles per ring (arrays), so staggered rings turn into place one after another.
+    view = {"pitch": va["pitch"] + (vb["pitch"] - va["pitch"]) * te,
+            "yaw": _shortest(va["yaw"], vb["yaw"], te),
             "roll": _shortest(va["roll"], vb["roll"], te) + 360 * turns * te,
-            "rot": _shortest(va["rot"], vb["rot"], t), "D": lerp(va["D"], vb["D"], t), "zoom": lerp(va["zoom"], vb["zoom"], t)}
+            "rot": _shortest(va["rotate"], vb["rotate"], te) + va["time"] * (va["spin"] + (vb["spin"] - va["spin"]) * te),
+            "D": lerp(va["D"], vb["D"], t), "zoom": lerp(va["zoom"], vb["zoom"], t)}
     la, lb = A["look"], B["look"]
     look = {k: lerp(la[k], lb[k], t) for k in ("width", "alpha", "glow", "trails")}
     look["additive"] = la["additive"] if t < 0.5 else lb["additive"]
@@ -509,23 +516,26 @@ def blend3d(A, B, u, turns=0, stagger=0.0, swirl=0.0, ease="linear"):
 def apply_view(frame):
     """Rings rotated into the page's view: world points a camera on +Z sees as the page does.
 
-    Roll (one angle, or one per ring during a staggered blend) and a blend's swirl both turn points
-    about the camera axis, last, as the page turns its finished picture. The swirl angle falls off
-    with the point's distance from the centre as the page measures it on screen (in units of
+    View angles are one set for a look, or one per ring during a blend. A blend's swirl then turns
+    points about the camera axis, as the page turns its finished picture; its angle falls off with
+    the point's distance from the centre as the page measures it on screen (in units of
     0.44 x frame size), so perspective and zoom are included.
     """
     v = frame["view"]
-    V = np.array(view_matrix(v["pitch"], v["yaw"], v["rot"], 0.0)).reshape(3, 3)
-    P = frame["pre"] @ V.T
-    roll = np.broadcast_to(np.asarray(v["roll"], dtype=float), P.shape[:1])
+    n = frame["pre"].shape[0]
+    per_ring = [np.broadcast_to(np.asarray(v[k], dtype=float), (n,)) for k in ("pitch", "yaw", "rot", "roll")]
+    if all(np.all(a == a[0]) for a in per_ring):
+        V = np.array(view_matrix(*(float(a[0]) for a in per_ring))).reshape(3, 3)
+        P = frame["pre"] @ V.T
+    else:
+        Vs = np.array([view_matrix(*(float(a[i]) for a in per_ring)) for i in range(n)]).reshape(n, 3, 3)
+        P = np.einsum("nmj,nij->nmi", frame["pre"], Vs)
     amp = frame.get("swirl")
-    if amp is None and not np.any(roll):
+    if amp is None:
         return P
-    deg = np.repeat(roll[:, None], P.shape[1], axis=1)
-    if amp is not None:
-        f = v["D"] / np.maximum(0.25, v["D"] - P[..., 2])
-        rn = np.hypot(P[..., 0], P[..., 1]) * f * v["zoom"]
-        deg = deg + amp[:, None] / (1 + rn * rn)
+    f = v["D"] / np.maximum(0.25, v["D"] - P[..., 2])
+    rn = np.hypot(P[..., 0], P[..., 1]) * f * v["zoom"]
+    deg = amp[:, None] / (1 + rn * rn)
     c, s = np.cos(deg * D2R), np.sin(deg * D2R)
     out = P.copy()
     out[..., 0] = c * P[..., 0] - s * P[..., 1]

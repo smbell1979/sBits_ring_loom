@@ -32,7 +32,8 @@ code = open(os.path.join(HERE, "ringloom_sop.py"), encoding="utf-8").read()
 probe_a = dict(E.DEFAULTS, gen="sphere", roll=63.0, yaw=-28.0, pitch=17.0, persp=0.5, rings=9, res=64)
 # Different palettes, so the colour mixing (OKLCH, with out-of-range colours pulled toward grey)
 # is checked too, not only positions.
-probe_b = dict(E.DEFAULTS, gen="cover", roll=-40.0, yaw=-28.0, pitch=17.0, persp=0.5, rings=6, res=64,
+# Its view differs too (yaw, pitch, spin), so the 3D view blend is covered.
+probe_b = dict(E.DEFAULTS, gen="cover", roll=-40.0, yaw=35.0, pitch=-10.0, spin=25.0, persp=0.5, rings=6, res=64,
                palette="acid" if E.DEFAULTS["palette"] != "acid" else "ember")
 probe_cards = [{"name": "probe a", "params": probe_a, "hold": 0.5, "blend": 2, "ease": "linear", "turns": 1,
                 "stagger": 0.5, "swirl": 200},

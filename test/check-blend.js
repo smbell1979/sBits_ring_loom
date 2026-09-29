@@ -62,7 +62,9 @@ setTimeout(() => {
 
   // t = 0 must be look A exactly: every output ring sits on its A ring, and the rings sharing one
   // A ring carry a total brightness of exactly 1 (no flash of doubled lines).
-  const f0 = t.blendFrames(fa, fb, 0), R = t.pairUp(fa.rings.length, fb.rings.length);
+  // Blends go through the page's real path: both looks in 3D, mixed, then projected.
+  const blendAt = (u, how) => t.morphFrame(A, B, time, size, M, u, how);
+  const f0 = blendAt(0), R = t.pairUp(fa.rings.length, fb.rings.length);
   let err0 = 0; const shareA = new Array(fa.rings.length).fill(0);
   f0.rings.forEach((r, i) => {
     const a = fa.rings[R.ia[i]];
@@ -75,7 +77,7 @@ setTimeout(() => {
   check("t=0 kaleidoscope weight sums to A's copies", Math.abs(cw0 - fa.look.copies.length) < 1e-9, `sum ${cw0}`);
 
   // t = 1 must be look B exactly.
-  const f1 = t.blendFrames(fa, fb, 1);
+  const f1 = blendAt(1);
   let err1 = 0;
   f1.rings.forEach((r, i) => { const b = fb.rings[R.ib[i]]; for (let j = 0; j < r.pts.length; j++) err1 = Math.max(err1, Math.abs(r.pts[j] - b.pts[j])); });
   check("t=1 points equal look B", err1 < 1e-3, `max ${err1.toExponential(2)} px`);
@@ -83,17 +85,37 @@ setTimeout(() => {
   const ang1 = f1.look.copies.map(c => c.angle), want1 = fb.look.copies.map(c => c.angle);
   check("t=1 kaleidoscope angles equal B's", ang1.every((a, i) => Math.abs(a - want1[i]) < 1e-9));
 
-  // No pops: over 200 steps of t, the largest move of any point between neighbouring steps should
-  // be about the total travel / 200. A pop would show as one step far above that.
-  let worst = 0, total = 0, prev = f0;
-  for (let s = 1; s <= 200; s++) {
-    const f = t.blendFrames(fa, fb, s / 200);
-    let step = 0;
-    f.rings.forEach((r, i) => { const q = prev.rings[i]; for (let j = 0; j < r.pts.length; j++) step = Math.max(step, Math.abs(r.pts[j] - q.pts[j])); });
-    worst = Math.max(worst, step); prev = f;
+  // No pops: the worst move of any point between neighbouring moments must halve when the steps
+  // are twice as fine. A jump is a fixed size, so it wouldn't. (Points no longer travel in
+  // straight lines when the views differ -- these two looks differ in Rotate, spin, yaw and
+  // pitch -- so an "even share of the straight-line travel" bound no longer applies.)
+  const stepsOf = (n, how) => { let w = 0, prev = blendAt(0, how); for (let s = 1; s <= n; s++) { const f = blendAt(s / n, how); f.rings.forEach((r, i) => { const q = prev.rings[i]; for (let j = 0; j < r.pts.length; j++) w = Math.max(w, Math.abs(r.pts[j] - q.pts[j])); }); prev = f; } return w; };
+  const w200 = stepsOf(200), w400 = stepsOf(400);
+  check("no jumps inside a blend", w200 / w400 > 1.8 && w200 / w400 < 2.2, `${w200.toFixed(3)} -> ${w400.toFixed(3)} px, ratio ${(w200 / w400).toFixed(2)}`);
+
+  // ---- views blend in 3D ----
+  {
+    const base = Object.assign(look("Rolling sphere"), { spin: 0, drift: 0, yaw: 0, pitch: 0, persp: 0.3 });
+    const radius = f => Math.max(...f.rings.flatMap(r => Array.from({ length: r.pts.length / 2 }, (_, j) => Math.hypot(r.pts[2 * j], r.pts[2 * j + 1]))));
+    const mid = (pa, pb) => t.morphFrame(pa, pb, 0, size, M, 0.5, {});
+    const still = t.computeFrame(base, 0, size, M), r0 = radius(still);
+    // A 180-degree Rotate change used to collapse the picture to a dot mid-blend; now it turns.
+    const rotMid = mid(Object.assign({}, base, { rotate: -90 }), Object.assign({}, base, { rotate: 90 }));
+    check("a 180-degree Rotate change turns instead of collapsing to a dot", radius(rotMid) > 0.9 * r0, `mid-blend size ${(radius(rotMid) / r0 * 100).toFixed(0)}% of the look's`);
+    // Same shape, views 90 degrees of yaw apart: mid-blend must be the shape rendered at the halfway
+    // yaw -- a real turn, checked against the page's own renderer.
+    const ya = Object.assign({}, base, { yaw: -45 }), yb = Object.assign({}, base, { yaw: 45 });
+    const want = t.computeFrame(Object.assign({}, base, { yaw: 0 }), 0, size, M), got = mid(ya, yb);
+    let dy = 0; got.rings.forEach((r, i) => { for (let j = 0; j < r.pts.length; j++) dy = Math.max(dy, Math.abs(r.pts[j] - want.rings[i].pts[j])); });
+    check("a yaw change mid-blend is the shape seen from the halfway angle", dy < 1e-3, `max ${dy.toExponential(1)} px`);
+    // Different spin speeds: the looks' angles drift apart over time. Late in a long sequence the
+    // gap passes 180 degrees; the blend must stay smooth there (the old angle-based mix flipped).
+    const sa = Object.assign({}, base, { spin: 20 }), sb = Object.assign({}, base, { spin: -25 });
+    const late = 3.7;  // seconds: gap 45 deg/s x 3.7 s = 166.5 deg, and it grows through 180 during the blend
+    const across = n => { let w = 0, prev = t.morphFrame(sa, sb, late, size, M, 0, {}); for (let s = 1; s <= n; s++) { const u = s / n, f = t.morphFrame(sa, sb, late + u * 1.0, size, M, u, {}); f.rings.forEach((r, i) => { const q = prev.rings[i]; for (let j = 0; j < r.pts.length; j++) w = Math.max(w, Math.abs(r.pts[j] - q.pts[j])); }); prev = f; } return w; };
+    const a1 = across(200), a2 = across(400);
+    check("different spin speeds blend smoothly while their gap passes 180 degrees", a1 / a2 > 1.8 && a1 / a2 < 2.2, `${a1.toFixed(2)} -> ${a2.toFixed(2)} px, ratio ${(a1 / a2).toFixed(2)}`);
   }
-  f1.rings.forEach((r, i) => { const q = f0.rings[i]; for (let j = 0; j < r.pts.length; j++) total = Math.max(total, Math.abs(r.pts[j] - q.pts[j])); });
-  check("no jumps inside a blend", worst <= total / 200 * 1.0001 + 1e-6, `worst step ${worst.toFixed(3)} px, even share ${(total / 200).toFixed(3)} px`);
 
   // ---- roll through a blend ----
   const maxDiff = (fx, fy) => { let m = 0; fx.rings.forEach((r, i) => { for (let j = 0; j < r.pts.length; j++) m = Math.max(m, Math.abs(r.pts[j] - fy.rings[i].pts[j])); }); return m; };
@@ -124,7 +146,7 @@ setTimeout(() => {
   }
   // Continuity for every blend style: halving the step size must halve the worst step between
   // neighbouring moments. A pop or tear is a fixed-size jump, so it would not shrink.
-  for (const [name, how] of hows.slice(3)) {
+  for (const [name, how] of hows.slice(1)) {
     const worstStep = steps => {
       let w = 0, prev = t.morphFrame(RA, RB, time, size, M, 0, how);
       for (let s = 1; s <= steps; s++) { const f = t.morphFrame(RA, RB, time, size, M, s / steps, how); w = Math.max(w, maxDiff(f, prev)); prev = f; }
@@ -162,14 +184,6 @@ setTimeout(() => {
   check("30 -> 10 goes clockwise, not 340 the other way", Math.abs(t.rollBetween(30, 10, 1, 0) - 10) < 1e-9);
   check("+2 turns adds two counter-clockwise turns", Math.abs(t.rollBetween(170, -170, 1, 2) - (170 + 20 + 720)) < 1e-9);
   check("-1 turn goes clockwise the long way", Math.abs(t.rollBetween(170, -170, 1, -1) - (170 + 20 - 360)) < 1e-9);
-  // No pops with turns either: the step between neighbouring moments stays even.
-  {
-    const steps = 400; let worstR = 0, prevR = t.morphFrame(RA, RB, time, size, M, 0, { turns: 2 });
-    for (let s = 1; s <= steps; s++) { const f = t.morphFrame(RA, RB, time, size, M, s / steps, { turns: 2 }); worstR = Math.max(worstR, maxDiff(f, prevR)); prevR = f; }
-    const radius = Math.max(...plainA.rings.concat(plainB.rings).flatMap(r => Array.from({ length: r.pts.length / 2 }, (_, j) => Math.hypot(r.pts[2 * j], r.pts[2 * j + 1]))));
-    const bound = (radius * (740 * D2R) + total) / steps;  // arc length of the turn + straight morph, split evenly
-    check("no jumps inside a blend with 2 extra turns", worstR <= bound * 1.01, `worst step ${worstR.toFixed(3)} px, bound ${bound.toFixed(3)} px`);
-  }
   // Turns in files: whole numbers only, clamped, and left out of files when 0.
   check("turns read from a file are whole and clamped", t.cleanCard({ params: A, turns: 2.6 }).turns === 3 && t.cleanCard({ params: A, turns: -99 }).turns === -10 && t.cleanCard({ params: A }).turns === 0);
 
