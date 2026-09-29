@@ -170,15 +170,18 @@ Out of the box, a first visit shows the opening look (`START_PARAMS` in `src/rin
 animating on its own, with a three-look example sequence loaded but not playing. Returning
 visitors see their own last settings instead, which the browser remembers per device.
 
-To make a saved sequence the default, save it from the page with **To file** (or save a single
-look with **Look file**), then:
+The current default is `default.ringloom.json` in the repo root. To change it, save a sequence
+from the page with **To file** (or a single look with **Look file**) over that file, then:
 
 ```bash
-node tools/set-default.js path/to/name.ringloom.json
-node tools/set-default.js path/to/name.ringloom.json --apply
+node tools/set-default.js
+node tools/set-default.js --apply
 ```
 
-The first command is a dry run showing the current and new defaults. A sequence of two or more
+The first command is a dry run showing the current and new defaults (or "No change" if the file
+is already what's live). Commit `default.ringloom.json` with the page, so history shows which
+file each default came from. To use a different file, name it:
+`node tools/set-default.js path/to/name.ringloom.json [--apply]`. A sequence of two or more
 looks starts playing on the first visit; add `--still` to load it without playing. `--clear` goes
 back to the built-in example. Before writing, the script boots the new page as a first-time
 visitor and compares what it shows against the file, and stops if any look, setting or value

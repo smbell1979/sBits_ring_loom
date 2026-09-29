@@ -1,13 +1,16 @@
 // Sets what a first-time visitor to Ring Loom sees.
 //
-//   node tools/set-default.js                               show the current default
-//   node tools/set-default.js my.ringloom.json              dry run: what would change
-//   node tools/set-default.js my.ringloom.json --apply      write it into src/ring-loom.html
-//   node tools/set-default.js my.ringloom.json --still      a sequence that doesn't start playing
+//   node tools/set-default.js                               dry run with default.ringloom.json
+//   node tools/set-default.js --apply                       write it into src/ring-loom.html
+//   node tools/set-default.js my.ringloom.json [--apply]    the same with another file
+//   node tools/set-default.js ... --still                   a sequence that doesn't start playing
 //   node tools/set-default.js --clear [--apply]             back to the built-in example
 //
-// Any file the page saves works: a sequence ("To file", or File in the saved list) or a single
-// look ("Look"). A sequence of two or more looks plays on the first visit unless --still.
+// The usual file is default.ringloom.json in the repo root: overwrite it with the page's "To file"
+// save and rerun, so there's no filename to track down. It is committed with the page, so git
+// history shows which file each default came from. Any file the page saves works: a sequence
+// ("To file", or File in the saved list) or a single look ("Look file"). A sequence of two or more
+// looks plays on the first visit unless --still.
 //
 // Before anything is written, the new page is booted in a stub browser with empty storage, i.e.
 // as a first-time visitor, and what it shows is compared against the raw file: every look, name,
@@ -19,6 +22,7 @@ const fs = require("fs");
 const path = require("path");
 
 const PAGE = path.join(__dirname, "..", "src", "ring-loom.html");
+const DEFAULT_FILE = path.join(__dirname, "..", "default.ringloom.json");
 const BEGIN = "// BEGIN DEFAULT_START", END = "// END DEFAULT_START";
 
 const args = process.argv.slice(2);
@@ -116,7 +120,13 @@ const current = boot(html);
 const cur = current.d.DEFAULT_START;
 console.log("Current default: " + (cur ? `${cur.source || "a saved file"} -> ` : "built-in example -> ") + describe(current));
 if (current.errors.length) console.log("  (the page reports: " + current.errors.join("; ") + ")");
-if (!files.length && !clear) process.exit(0);
+if (!clear && !files.length) {
+  if (!fs.existsSync(DEFAULT_FILE)) {
+    console.error(`\nNo file given and no ${path.basename(DEFAULT_FILE)} in the repo root. Save a sequence there with the page's "To file", or name a file.`);
+    process.exit(1);
+  }
+  files.push(DEFAULT_FILE);
+}
 
 let value = "null", raw = null;
 if (!clear) {
@@ -130,6 +140,10 @@ if (!clear) {
   }
   // "<" escaped so a name containing "</script>" can't end the page's script early.
   value = JSON.stringify({ play: !still, source: path.basename(file), file: raw }).replace(/</g, "\\u003c");
+  if (cur && JSON.stringify(cur.file) === JSON.stringify(raw) && !!cur.play === !still) {
+    console.log(`\nNo change: ${path.basename(file)} is already the default, exactly as saved.`);
+    process.exit(0);
+  }
 }
 const block = `${BEGIN}\nconst DEFAULT_START = ${value};\n`;
 const next = html.slice(0, b) + block + html.slice(e);
