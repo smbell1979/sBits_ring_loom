@@ -9,3 +9,7 @@ node_modules/
 # Python bytecode (houdini/ scripts)
 __pycache__/
 *.pyc
+
+# Render output and Houdini autosave backups
+examples/render/
+examples/backup/

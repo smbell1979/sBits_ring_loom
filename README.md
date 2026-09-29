@@ -53,6 +53,25 @@ orbit freely in the viewport. Blends happen in 3D: the rings blend, and the view
 taking the short way round. The page blends flat pictures instead, so the two match exactly only
 when both looks share a view.
 
+### Karma render
+
+`/stage` in the example scene renders the rings with Karma XPU at the SOP's Render Resolution
+(`/stage/ringloom_render`, frames 1-432, to `$HIP/render/ringloom.$F4.exr`):
+
+- **Material:** `/materials/ringloom_lines` is a MtlX Surface Unlit that emits each curve's colour x
+  alpha (`displayColor` x `displayOpacity`) and fully transmits, so overlapping lines add their
+  light like the page's light blending instead of hiding each other.
+- **Glow:** the `ringloom_glow` Image Filter LOP holds a Glow COP (threshold 0, gaussian) that Karma
+  applies during the render. Its size in pixels follows the sequence's glow value.
+- **Depth of field is off** in the render settings. The camera's focus still follows its distance
+  to the rings, so turning DOF on focuses on them rather than at Houdini's default 5 units.
+- **Alpha is 0 everywhere**, because the lines fully transmit. Comp the render with an additive
+  (plus) merge over the background rather than an over, or treat it as a black-background plate.
+- The page's **trails** aren't reproduced yet.
+
+The render setup lives in the saved example scene; `make_example_hip.py` builds only the importer
+and camera.
+
 The engine (`houdini/ringloom_engine.py`) is a port of the page's maths and is checked against it:
 
 ```bash
