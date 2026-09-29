@@ -182,7 +182,7 @@ The first command is a dry run showing the current and new defaults. A sequence 
 looks starts playing on the first visit; add `--still` to load it without playing. `--clear` goes
 back to the built-in example. Before writing, the script boots the new page as a first-time
 visitor and compares what it shows against the file, and stops if any look, setting or value
-wouldn't come through exactly. Commit and push to publish, and republish the Claude artifact.
+wouldn't come through exactly. Commit and push to publish; Vercel deploys on push.
 Because returning visitors keep their own state, open the page in a private window to see the new
 default yourself.
 

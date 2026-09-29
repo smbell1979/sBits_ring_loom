@@ -151,4 +151,4 @@ if (!apply) {
   process.exit(0);
 }
 fs.writeFileSync(PAGE, next);
-console.log(`Written to ${path.relative(process.cwd(), PAGE)}. Commit and push to publish it; republish the Claude artifact too.`);
+console.log(`Written to ${path.relative(process.cwd(), PAGE)}. Commit and push to publish it (Vercel deploys on push).`);
