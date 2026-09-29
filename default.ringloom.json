@@ -2,7 +2,7 @@
  "ringLoom": 1,
  "kind": "sequence",
  "name": "Test Sequence v001",
- "savedAt": "2026-09-29T17:07:17.387Z",
+ "savedAt": "2026-09-29T18:48:32.063Z",
  "sequence": [
   {
    "name": "Opening look",
@@ -65,7 +65,8 @@
    },
    "hold": 3,
    "blend": 3,
-   "ease": "smooth"
+   "ease": "smooth",
+   "match": false
   },
   {
    "name": "Rolling sphere",
@@ -128,7 +129,8 @@
    },
    "hold": 3,
    "blend": 3,
-   "ease": "smooth"
+   "ease": "smooth",
+   "match": false
   },
   {
    "name": "Star weave",
@@ -191,7 +193,8 @@
    },
    "hold": 3,
    "blend": 3,
-   "ease": "smooth"
+   "ease": "smooth",
+   "match": false
   }
  ]
 }
