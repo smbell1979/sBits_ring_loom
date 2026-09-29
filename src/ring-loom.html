@@ -167,7 +167,7 @@ summary .sub { text-transform: none; letter-spacing: 0; font-weight: 400; color:
 }
 .cards:empty::before { content: "No looks yet. Press Add current look to start a sequence."; color: var(--muted); font-size: 12.5px; align-self: center; }
 .card {
-  flex: 0 0 300px; display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; align-items: center;
+  flex: 0 0 330px; display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; align-items: center;
   padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2);
 }
 .card.now { border-color: var(--accent); }
@@ -187,7 +187,7 @@ summary .sub { text-transform: none; letter-spacing: 0; font-weight: 400; color:
 }
 .icon:hover { color: var(--fg); border-color: var(--muted); }
 .icon:disabled { opacity: 0.3; cursor: not-allowed; }
-.card-times { display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 6px; }
+.card-times { display: grid; grid-template-columns: 1fr 1fr 0.85fr 1.35fr; gap: 6px; }
 .card-times label { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
 .card-times input, .card-times select {
   width: 100%; min-width: 0; background: var(--panel); color: var(--fg); border: 1px solid var(--line);
@@ -463,6 +463,15 @@ const PRESETS = {
 // randomize() and the SCHEMA order stay unchanged.
 const START_SEED = 33510;
 const START_PARAMS = {"gen":"cover","base":"circle","sides":8,"depth":0.45,"superexp":2,"rings":19,"res":360,"wobble":0,"lobes":2,"ringPhase":0.141,"wobbleSpeed":0.74,"flare":2.21,"squash":1.05,"twist":45.5,"alpha":55,"sweep":108,"squashA":0.92,"stretchA":0.992,"turn":-1.75,"aspect0":0.96,"angle0":10,"aspect1":0.08,"angle1":-22,"size1":0.8,"phase":40,"ease":0.8,"fx":2,"fy":3,"phaseStep":0.012,"decay":0.35,"orbitR":0.38,"ringR":0.5,"loops":1,"tilt":75,"speed":1,"drift":0.73,"rotate":158,"spin":-14.5,"yaw":9,"pitch":-3,"persp":0,"zoom":0.95,"palette":"ember","colorA":"#f44e35","colorB":"#1670f5","spread":0.76,"cycle":0,"width":1.35,"alphaL":0.44,"glow":10.5,"trails":0.88,"mirror":1,"additive":true,"bg":"#000000"};
+
+// What a first-time visitor sees: a saved .ringloom.json (sequence or look) and whether a sequence
+// starts playing. null means the opening look above with the three-look example chain, not playing.
+// Visitors who have used the page before get their own last state instead. Written by
+//   node tools/set-default.js <file>.ringloom.json [--still] [--apply]
+// which checks the file with this page's own reader first; don't edit between the markers by hand.
+// BEGIN DEFAULT_START
+const DEFAULT_START = null;
+// END DEFAULT_START
 
 // ---------- state ----------
 let params = cleanParams(START_PARAMS);
@@ -795,6 +804,37 @@ function blendFrames(fa, fb, t) {
   };
 }
 
+// Roll is applied after everything else and perspective depends only on depth, so rolling the view
+// is exactly a turn of the finished screen image. That lets a blend turn the picture instead of
+// sliding points straight across (which squashes rings through the middle): morph the two looks
+// with roll taken out, then turn the result by an angle that travels between the two rolls.
+// Positive angles turn counter-clockwise on screen, as the Roll slider does.
+function rollFrame(f, deg) {
+  if (!deg) return f;
+  const r = rz3(deg);
+  for (const ring of f.rings) {
+    const p = ring.pts;
+    for (let j = 0; j < p.length; j += 2) {
+      const x = p[j], y = p[j + 1];
+      p[j] = r[0] * x - r[1] * y;       // screen y points down: world (X, Y) is screen (x, -y)
+      p[j + 1] = -r[3] * x + r[4] * y;
+    }
+  }
+  return f;
+}
+// The roll part-way through a blend: the short way round, plus the card's extra whole turns
+// (positive: counter-clockwise). Whole turns only, so the blend always ends exactly on B's roll.
+function rollBetween(a, b, e, turns) {
+  const d = ((((b - a) % 360) + 540) % 360) - 180;
+  return a + (d + 360 * (turns || 0)) * e;
+}
+// Look pa morphing into look pb, e of the way, as the sequence plays it.
+function morphFrame(pa, pb, time, size, M, e, turns) {
+  const flat = p => p.roll ? Object.assign({}, p, { roll: 0 }) : p;
+  const f = blendFrames(computeFrame(flat(pa), time, size, M), computeFrame(flat(pb), time, size, M), e);
+  return rollFrame(f, rollBetween(pa.roll, pb.roll, e, turns));
+}
+
 function renderFrame(f) {
   const W = view.width, H = view.height, L = f.look;
   const paths = f.rings.map(r => {
@@ -845,7 +885,7 @@ function currentFrame() {
   const a = seq.cards[at.i].params;
   if (at.u <= 0) return computeFrame(a, seq.tau, size);
   const b = seq.cards[at.j].params, M = Math.max(Math.round(a.res), Math.round(b.res));
-  return blendFrames(computeFrame(a, seq.tau, size, M), computeFrame(b, seq.tau, size, M), at.e);
+  return morphFrame(a, b, seq.tau, size, M, at.e, seq.cards[at.i].turns);
 }
 function draw() { renderFrame(currentFrame()); }
 
@@ -1026,17 +1066,23 @@ const seqPosEl = document.getElementById("seqPos"), seqPosOut = document.getElem
 const seqStatusEl = document.getElementById("seqStatus"), seqPlayBtn = document.getElementById("seqPlay");
 
 function makeCard(p, name) {
-  return { id: seq.nextId++, name, params: cleanParams(p), hold: 3, blend: 3, ease: "smooth" };
+  return { id: seq.nextId++, name, params: cleanParams(p), hold: 3, blend: 3, ease: "smooth", turns: 0 };
 }
+const MAX_TURNS = 10;
 function cleanCard(raw) {
   if (!raw || typeof raw !== "object" || !raw.params) return null;
   const c = makeCard(raw.params, typeof raw.name === "string" && raw.name.trim() ? raw.name.slice(0, 40) : "Look");
   if (Number.isFinite(+raw.hold)) c.hold = clamp(+raw.hold, 0, 60);
   if (Number.isFinite(+raw.blend)) c.blend = clamp(+raw.blend, 0, 60);
   if (raw.ease in EASES) c.ease = raw.ease;
+  // Whole turns only: a fraction would end the blend off the next look's roll, then snap.
+  if (Number.isFinite(+raw.turns)) c.turns = clamp(Math.round(+raw.turns), -MAX_TURNS, MAX_TURNS);
   return c;
 }
-const cardsForSave = () => seq.cards.map(({ name, params: p, hold, blend, ease }) => ({ name, params: p, hold, blend, ease }));
+// turns is written only when set, so sequences saved before it existed keep the same content key
+// (and don't suddenly read as "unsaved").
+const cardsForSave = () => seq.cards.map(({ name, params: p, hold, blend, ease, turns }) =>
+  turns ? { name, params: p, hold, blend, ease, turns } : { name, params: p, hold, blend, ease });
 
 // Thumbnails are drawn from the card's settings rather than stored as images.
 function drawThumb(p, cv) {
@@ -1119,20 +1165,23 @@ function renderSeq() {
 
     const times = document.createElement("div");
     times.className = "card-times";
-    const num = (label, key) => {
+    const num = (label, key, min = 0, max = 60, step = 0.5, tip = "") => {
       const l = document.createElement("label");
       l.textContent = label;
+      if (tip) l.title = tip;
       const inp = document.createElement("input");
-      inp.type = "number"; inp.min = 0; inp.max = 60; inp.step = 0.5; inp.value = card[key]; inp.id = `${pre}-${key}`;
+      inp.type = "number"; inp.min = min; inp.max = max; inp.step = step; inp.value = card[key]; inp.id = `${pre}-${key}`;
       inp.addEventListener("input", () => {
         const v = parseFloat(inp.value);
-        if (Number.isFinite(v)) { card[key] = clamp(v, 0, 60); seqUpdateRange(); persist(); }
+        if (Number.isFinite(v)) { card[key] = clamp(step === 1 ? Math.round(v) : v, min, max); seqUpdateRange(); persist(); }
       });
       l.append(inp);
       times.append(l);
     };
     num("Hold s", "hold");
     num(idx === n - 1 && n > 1 ? "Blend → 1st" : "Blend s", "blend");
+    num("Turns", "turns", -MAX_TURNS, MAX_TURNS, 1,
+      "Extra whole roll turns while this look blends into the next: positive counter-clockwise, negative clockwise. 0 takes the short way round.");
     const el = document.createElement("label");
     el.textContent = "Easing";
     const sel = document.createElement("select");
@@ -1640,15 +1689,29 @@ function start(data) {
     if (Number.isFinite(data && data.T)) T = data.T;
   }
   const savedCards = saved && Array.isArray(saved.sequence) ? saved.sequence.map(cleanCard).filter(Boolean) : null;
-  // First visit: an example chain (opening look -> sphere -> star) so the panel shows what it does.
-  seq.cards = savedCards || [
+  // First visit: the chosen default if there is one, else an example chain (opening look -> sphere
+  // -> star) so the panel shows what it does.
+  let firstVisit = null, defaultNote = "";
+  if (!saved && DEFAULT_START) {
+    try {
+      const d = parseSequenceFile(JSON.stringify(DEFAULT_START.file), "Default");
+      if (d.skipped) throw new Error(`${d.skipped} of its looks couldn't be read`);
+      firstVisit = { cards: d.cards, name: d.name, play: !!DEFAULT_START.play && d.cards.length >= 2 };
+      params = cleanParams(d.cards[0].params);
+    } catch (err) {
+      // set-default.js checks the file before writing it, so this means the page's reader changed.
+      console.error("Ring Loom: the built-in default couldn't be read, showing the example instead.", err);
+      defaultNote = `The built-in default sequence couldn't be read (${err.message}), so this is the example.`;
+    }
+  }
+  seq.cards = savedCards || (firstVisit && firstVisit.cards) || [
     makeCard(START_PARAMS, "Opening look"),
     makeCard(Object.assign(defaults(), PRESETS["Rolling sphere"]), "Rolling sphere"),
     makeCard(Object.assign(defaults(), PRESETS["Star weave"]), "Star weave"),
   ];
   if (saved && typeof saved.seqName === "string") seq.name = saved.seqName.slice(0, 60);
   if (saved && typeof saved.seqSavedKey === "string") seq.savedKey = saved.seqSavedKey;
-  if (!savedCards) { seq.name = "Example"; seq.savedKey = seqKey(); }  // not "unsaved work" to guard
+  if (!savedCards) { seq.name = firstVisit ? firstVisit.name : "Example"; seq.savedKey = seqKey(); }  // not "unsaved work" to guard
   seqNameEl.value = seq.name;
   buildControls();
   buildPresets();
@@ -1656,6 +1719,9 @@ function start(data) {
   resize();
   renderSeq();
   renderLibrary();
+  // `playing` is already false for viewers who ask for reduced motion; don't start it for them.
+  if (firstVisit && firstVisit.play && playing) startSeq(true);
+  if (defaultNote) seqStatusEl.textContent = defaultNote;
   requestAnimationFrame(tick);
   initDownloads();
   window.claude?.hot?.snapshot?.(() => ({ params, seed, activePreset, T, sequence: cardsForSave() }));

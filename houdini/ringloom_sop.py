@@ -388,7 +388,8 @@ def _shortest(a, b, t):
     return a + d * t
 
 
-def blend3d(A, B, t):
+def blend3d(A, B, t, turns=0):
+    """A morphing into B, t of the way. turns: the card's extra whole roll turns (page rollBetween)."""
     n, ia, ib, wa, wb = pair_up(len(A["w"]), len(B["w"]))
     pa, pb = A["pre"][ia], B["pre"][ib]
     pre = pa + (pb - pa) * t
@@ -399,7 +400,7 @@ def blend3d(A, B, t):
                lerp(A["copies"][cia[i]][1] * cwa[i], B["copies"][cib[i]][1] * cwb[i], t)) for i in range(cn)]
     va, vb = A["view"], B["view"]
     view = {"pitch": lerp(va["pitch"], vb["pitch"], t), "yaw": _shortest(va["yaw"], vb["yaw"], t),
-            "roll": _shortest(va["roll"], vb["roll"], t),
+            "roll": _shortest(va["roll"], vb["roll"], t) + 360 * turns * t,
             "rot": _shortest(va["rot"], vb["rot"], t), "D": lerp(va["D"], vb["D"], t), "zoom": lerp(va["zoom"], vb["zoom"], t)}
     la, lb = A["look"], B["look"]
     look = {k: lerp(la[k], lb[k], t) for k in ("width", "alpha", "glow", "trails")}
@@ -433,17 +434,21 @@ EASES = {
 }
 
 
+MAX_TURNS = 10
+
+
 def clean_card(raw):
     if not isinstance(raw, dict) or not isinstance(raw.get("params"), dict):
         return None
     name = raw.get("name")
     card = {"name": name[:40] if isinstance(name, str) and name.strip() else "Look",
-            "params": clean_params(raw["params"]), "hold": 3.0, "blend": 3.0, "ease": "smooth"}
-    for key in ("hold", "blend"):
+            "params": clean_params(raw["params"]), "hold": 3.0, "blend": 3.0, "ease": "smooth", "turns": 0}
+    for key in ("hold", "blend", "turns"):
         try:
             v = float(raw.get(key))
             if math.isfinite(v):
-                card[key] = clamp(v, 0, 60)
+                # Whole turns only, as on the page, so a blend always lands on the next look's roll.
+                card[key] = clamp(jsround(v), -MAX_TURNS, MAX_TURNS) if key == "turns" else clamp(v, 0, 60)
         except (TypeError, ValueError):
             pass
     if raw.get("ease") in EASES:
@@ -535,7 +540,8 @@ def evaluate(cards, clock, M=None):
         return look3d(a["params"], tau, M), a["name"]
     b = cards[at["j"]]
     m = M or max(jsround(a["params"]["res"]), jsround(b["params"]["res"]))
-    return blend3d(look3d(a["params"], tau, m), look3d(b["params"], tau, m), at["e"]), "%s -> %s" % (a["name"], b["name"])
+    return (blend3d(look3d(a["params"], tau, m), look3d(b["params"], tau, m), at["e"], a["turns"]),
+            "%s -> %s" % (a["name"], b["name"]))
 
 
 def world_rings(frame):

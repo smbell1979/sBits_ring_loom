@@ -72,12 +72,13 @@ def main(path):
         w = compare(label, E.look3d(E.clean_params(c["params"]), c["tau"], M), c["frame"])
         worst_case = max(worst_case, (w, label))
 
-    # 3. Blends between flat looks sharing a view (where 2D and 3D blending must agree exactly).
+    # 3. Blends between flat looks sharing yaw and pitch (where 2D and 3D blending must agree
+    #    exactly), including roll changes with extra whole turns.
     for b in g["blends"]:
         A = E.look3d(E.clean_params(b["a"]), b["tau"], M)
         B = E.look3d(E.clean_params(b["b"]), b["tau"], M)
         label = f"blend '{b['name']}' at e={b['e']}"
-        w = compare(label, E.blend3d(A, B, b["e"]), b["frame"])
+        w = compare(label, E.blend3d(A, B, b["e"], b.get("turns", 0)), b["frame"])
         worst_case = max(worst_case, (w, label))
 
     # 4. Sequence clock.

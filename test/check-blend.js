@@ -8,7 +8,7 @@ const hook = "function draw() { renderFrame(currentFrame()); }";
 if (!js.includes(hook)) { console.error("FAIL: draw() hook line not found; update this test"); process.exit(1); }
 // Getters, not values: the hook line sits above some of these declarations, so reading them
 // eagerly would hit the temporal dead zone. By the time the checks run, all exist.
-const exposed = ["computeFrame", "blendFrames", "pairUp", "seqAt", "seq", "EASES", "defaults", "PRESETS", "START_PARAMS", "cleanParams",
+const exposed = ["computeFrame", "blendFrames", "pairUp", "morphFrame", "rollFrame", "rollBetween", "cleanCard", "seqAt", "seq", "EASES", "defaults", "PRESETS", "START_PARAMS", "cleanParams",
   "readLibrary", "writeLibrary", "libraryUpsert", "parseSequenceFile", "sequenceFileData", "cardsForSave", "makeCard", "seqDirty", "seqKey",
   "lookFileData", "readLookFile", "params"];
 js = js.replace(hook, hook + "\nglobalThis.__t = {" + exposed.map(n => `get ${n}() { return ${n}; }`).join(", ") + "};");
@@ -45,6 +45,7 @@ const g = {
 g.window = g;
 new Function(...Object.keys(g), js)(...Object.values(g));
 
+const D2R = Math.PI / 180;
 let failed = false;
 const check = (name, ok, detail) => { console.log(`${ok ? "ok  " : "FAIL"} ${name}${detail ? "  (" + detail + ")" : ""}`); if (!ok) failed = true; };
 
@@ -94,6 +95,45 @@ setTimeout(() => {
   f1.rings.forEach((r, i) => { const q = f0.rings[i]; for (let j = 0; j < r.pts.length; j++) total = Math.max(total, Math.abs(r.pts[j] - q.pts[j])); });
   check("no jumps inside a blend", worst <= total / 200 * 1.0001 + 1e-6, `worst step ${worst.toFixed(3)} px, even share ${(total / 200).toFixed(3)} px`);
 
+  // ---- roll through a blend ----
+  const maxDiff = (fx, fy) => { let m = 0; fx.rings.forEach((r, i) => { for (let j = 0; j < r.pts.length; j++) m = Math.max(m, Math.abs(r.pts[j] - fy.rings[i].pts[j])); }); return m; };
+  // The whole approach rests on this: rolling a finished frame on screen is the same as rendering
+  // it with that roll, even in 3D with perspective. Checked against the page's own renderer.
+  const P3 = Object.assign(look("Rolling sphere"), { yaw: 35, pitch: -20, persp: 0.8, roll: 0 });
+  const rolled = t.computeFrame(Object.assign({}, P3, { roll: 57 }), time, size, M);
+  const turned = t.rollFrame(t.computeFrame(P3, time, size, M), 57);
+  check("turning a frame on screen = rendering it with that roll (3D, perspective)", maxDiff(rolled, turned) < 1e-3, `max ${maxDiff(rolled, turned).toExponential(2)} px`);
+  // Direction: positive roll is counter-clockwise on screen (screen y points down).
+  const flatA = Object.assign({}, A, { roll: 0, mirror: 1 });
+  const p0 = t.computeFrame(flatA, 0, size, M).rings[5].pts, p1 = t.computeFrame(Object.assign({}, flatA, { roll: 10 }), 0, size, M).rings[5].pts;
+  const turn = Math.atan2(-p1[1], p1[0]) - Math.atan2(-p0[1], p0[0]);
+  check("positive roll turns counter-clockwise on screen", Math.abs(((turn / D2R + 540) % 360) - 180 - 10) < 1e-3, `${(turn / D2R).toFixed(3)} deg`);
+
+  const RA = Object.assign({}, A, { roll: 170 }), RB = Object.assign({}, B, { roll: -170 });
+  const plainA = t.computeFrame(RA, time, size, M), plainB = t.computeFrame(RB, time, size, M);
+  for (const turns of [0, 2, -3]) {
+    const m0 = t.morphFrame(RA, RB, time, size, M, 0, turns), m1 = t.morphFrame(RA, RB, time, size, M, 1, turns);
+    const e0 = Math.max(...m0.rings.map((r, i) => maxDiff({ rings: [r] }, { rings: [plainA.rings[R.ia[i]]] })));
+    const e1 = Math.max(...m1.rings.map((r, i) => maxDiff({ rings: [r] }, { rings: [plainB.rings[R.ib[i]]] })));
+    check(`turns ${turns}: blend starts on A and ends exactly on B`, e0 < 1e-3 && e1 < 1e-3, `start ${e0.toExponential(1)}, end ${e1.toExponential(1)} px`);
+  }
+  check("170 -> -170 goes the short way (through 180, not 0)", Math.abs(t.rollBetween(170, -170, 0.5, 0) - 180) < 1e-9);
+  // Needs the other direction too: "always counter-clockwise" would pass the check above.
+  check("-170 -> 170 goes the short way clockwise", Math.abs(t.rollBetween(-170, 170, 0.5, 0) + 180) < 1e-9);
+  check("30 -> 10 goes clockwise, not 340 the other way", Math.abs(t.rollBetween(30, 10, 1, 0) - 10) < 1e-9);
+  check("+2 turns adds two counter-clockwise turns", Math.abs(t.rollBetween(170, -170, 1, 2) - (170 + 20 + 720)) < 1e-9);
+  check("-1 turn goes clockwise the long way", Math.abs(t.rollBetween(170, -170, 1, -1) - (170 + 20 - 360)) < 1e-9);
+  // No pops with turns either: the step between neighbouring moments stays even.
+  {
+    const steps = 400; let worstR = 0, prevR = t.morphFrame(RA, RB, time, size, M, 0, 2);
+    for (let s = 1; s <= steps; s++) { const f = t.morphFrame(RA, RB, time, size, M, s / steps, 2); worstR = Math.max(worstR, maxDiff(f, prevR)); prevR = f; }
+    const radius = Math.max(...plainA.rings.concat(plainB.rings).flatMap(r => Array.from({ length: r.pts.length / 2 }, (_, j) => Math.hypot(r.pts[2 * j], r.pts[2 * j + 1]))));
+    const bound = (radius * (740 * D2R) + total) / steps;  // arc length of the turn + straight morph, split evenly
+    check("no jumps inside a blend with 2 extra turns", worstR <= bound * 1.01, `worst step ${worstR.toFixed(3)} px, bound ${bound.toFixed(3)} px`);
+  }
+  // Turns in files: whole numbers only, clamped, and left out of files when 0.
+  check("turns read from a file are whole and clamped", t.cleanCard({ params: A, turns: 2.6 }).turns === 3 && t.cleanCard({ params: A, turns: -99 }).turns === -10 && t.cleanCard({ params: A }).turns === 0);
+
   // Sequence clock: hold, then blend, and the last look blends back into the first.
   t.seq.cards = [
     { params: A, hold: 2, blend: 3, ease: "linear" },
@@ -109,12 +149,14 @@ setTimeout(() => {
 
   // ---- saving: files and the in-browser library ----
   t.seq.cards = [t.makeCard(A, "First"), t.makeCard(B, "Second")];
-  t.seq.cards[0].hold = 1.5; t.seq.cards[1].blend = 7; t.seq.cards[1].ease = "out";
+  t.seq.cards[0].hold = 1.5; t.seq.cards[1].blend = 7; t.seq.cards[1].ease = "out"; t.seq.cards[1].turns = -2;
   t.seq.name = "Round trip";
   const before = JSON.stringify(t.cardsForSave());
+  check("turns is saved when set and left out when 0", !("turns" in t.cardsForSave()[0]) && t.cardsForSave()[1].turns === -2);
   const parsed = t.parseSequenceFile(t.sequenceFileData(), "fallback");
-  const after = JSON.stringify(parsed.cards.map(({ name, params, hold, blend, ease }) => ({ name, params, hold, blend, ease })));
-  check("file round trip keeps every look, time and easing", before === after && parsed.name === "Round trip" && parsed.skipped === 0);
+  const after = JSON.stringify(parsed.cards.map(({ name, params, hold, blend, ease, turns }) =>
+    turns ? { name, params, hold, blend, ease, turns } : { name, params, hold, blend, ease }));
+  check("file round trip keeps every look, time, easing and turn count", before === after && parsed.name === "Round trip" && parsed.skipped === 0);
 
   const code = JSON.stringify({ ringLoom: 1, params: A, sequence: t.cardsForSave() });
   check("a pasted settings code opens as a sequence", t.parseSequenceFile(code, "x").cards.length === 2);

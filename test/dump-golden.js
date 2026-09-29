@@ -7,7 +7,7 @@ const html = fs.readFileSync(process.argv[2], "utf8");
 let js = html.match(/<script>([\s\S]*)<\/script>/)[1];
 const hook = "function draw() { renderFrame(currentFrame()); }";
 if (!js.includes(hook)) { console.error("draw() hook line not found; update this script"); process.exit(1); }
-const exposed = ["computeFrame", "blendFrames", "seqAt", "seq", "defaults", "PRESETS", "START_PARAMS", "cleanParams", "randomize", "makeCard", "cardsForSave", "SCHEMA"];
+const exposed = ["computeFrame", "blendFrames", "morphFrame", "seqAt", "seq", "defaults", "PRESETS", "START_PARAMS", "cleanParams", "randomize", "makeCard", "cardsForSave", "SCHEMA"];
 js = js.replace(hook, hook + "\nglobalThis.__t = {" + exposed.map(n => `get ${n}() { return ${n}; }`).join(", ") + "};");
 
 const stub = () => new Proxy(function () {}, {
@@ -59,20 +59,25 @@ for (const [name, p] of looks) {
   for (const tau of [0, 2.37, 7.9]) cases.push({ name, params: p, tau, frame: frameOut(t.computeFrame(p, tau, SIZE, M)) });
 }
 
-// Blends with identical views on flat generators: there the page's screen-space blend and the
-// Houdini 3D blend must agree exactly (projection is linear when every point has z = 0).
+// Blends with identical yaw, pitch and perspective on flat generators: there the page's
+// screen-space blend and the Houdini 3D blend must agree exactly (projection is linear when every
+// point has z = 0). Roll may differ: both sides turn the picture, so the rolled pairs check that
+// the two agree on the path, the short way round and with extra whole turns.
 const flat = (extra) => Object.assign(t.defaults(), { yaw: 0, pitch: 0, persp: 0, rotate: 30, spin: 5 }, extra);
 const blendPairs = [
   ["cover19->again54", flat({ gen: "cover", rings: 19 }), flat({ gen: "again", rings: 54, base: "star", sides: 5 })],
   ["blend6copies", flat({ gen: "blend", rings: 30, mirror: 1 }), flat({ gen: "harmono", rings: 12, mirror: 6, palette: "dusk" })],
   ["mirror3to2", flat({ gen: "again", rings: 7, mirror: 3, palette: "acid" }), flat({ gen: "cover", rings: 31, mirror: 2, palette: "spectrum" })],
   ["rolled", flat({ gen: "cover", rings: 19, roll: 40 }), flat({ gen: "blend", rings: 25, roll: 40 })],
+  ["roll across 180", flat({ gen: "cover", rings: 19, roll: 170 }), flat({ gen: "again", rings: 12, roll: -170 })],
+  ["roll +2 turns", flat({ gen: "blend", rings: 25, roll: -30, mirror: 3 }), flat({ gen: "cover", rings: 19, roll: 60 }), 2],
+  ["roll -1 turn", flat({ gen: "harmono", rings: 12, roll: 90 }), flat({ gen: "blend", rings: 30, roll: 90 }), -1],
 ];
 const blends = [];
-for (const [name, a, b] of blendPairs) {
+for (const [name, a, b, turns = 0] of blendPairs) {
   for (const e of [0, 0.25, 0.5, 0.8, 1]) {
-    const f = t.blendFrames(t.computeFrame(a, 3.1, SIZE, M), t.computeFrame(b, 3.1, SIZE, M), e);
-    blends.push({ name, a, b, tau: 3.1, e, frame: frameOut(f) });
+    const f = t.morphFrame(a, b, 3.1, SIZE, M, e, turns);
+    blends.push({ name, a, b, turns, tau: 3.1, e, frame: frameOut(f) });
   }
 }
 
