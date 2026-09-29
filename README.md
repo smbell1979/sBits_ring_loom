@@ -17,6 +17,10 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
   generator, base-shape and ring-count changes read as motion. When ring or kaleidoscope counts
   differ, the extra copies split out of their nearest neighbour instead of fading in; the only
   setting that switches outright is Light blend, at the midpoint.
+- **Saved sequences:** name a sequence and Save it to a list in this browser, then Load,
+  re-save or delete entries. **Save to file** writes `name.ringloom.json` (every look, hold, blend
+  and easing) and **Open file** loads one back on any computer; it also accepts a settings code.
+  Anything that would replace unsaved changes asks for a second press first.
 - Controls that do nothing in the current combination are dimmed, with the reason on hover.
 - **Save** a PNG frame, an SVG of the current lines, or a video clip, including exactly one loop
   of the sequence.
@@ -40,7 +44,9 @@ node test/check-blend.js src/ring-loom.html
 
 `test/check-blend.js` runs the page script under a stub DOM and checks the morph guarantees: a
 blend starts exactly on look A and ends exactly on look B, split rings share brightness so nothing
-flashes, and no point jumps between neighbouring steps.
+flashes, and no point jumps between neighbouring steps. It also checks saving: files round-trip
+exactly, unreadable looks are counted rather than dropped, and blocked or silently dropped browser
+storage is reported as a failure instead of an empty list.
 
 ## Changing the opening look
 

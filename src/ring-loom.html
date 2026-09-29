@@ -139,6 +139,23 @@ summary .sub { text-transform: none; letter-spacing: 0; font-weight: 400; color:
 }
 .card-times select { font-family: var(--ui); }
 
+.lib-save { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.lib-save label { color: var(--muted); font-size: 12.5px; }
+.lib-save input {
+  min-width: 0; background: var(--panel-2); border: 1px solid var(--line); color: var(--fg);
+  border-radius: 4px; padding: 6px 8px; font: 13px var(--ui);
+}
+.lib { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.lib li {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center;
+  padding: 7px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2);
+}
+.lib li.current { border-color: var(--accent); }
+.lib .lib-name { font-weight: 500; font-size: 13px; overflow-wrap: anywhere; }
+.lib .lib-meta { font: 11px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; margin-top: 2px; }
+.lib .lib-btns { display: flex; gap: 4px; }
+.lib-empty { color: var(--muted); font-size: 12.5px; }
+
 .save { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .save select { background: var(--panel-2); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 6px; font: 13px var(--ui); }
 .status { font-size: 12.5px; color: var(--muted); min-height: 1.3em; line-height: 1.4; }
@@ -205,6 +222,25 @@ textarea {
         <div class="status" id="seqStatus" role="status"></div>
         <p class="note">Each look holds, then morphs into the next one, and the last one morphs back into the first. Every ring point travels to its new place while both looks keep moving. Generator, shape and ring-count changes become motion instead of a cut. Click a look's picture to edit it, then press Update to store the change.</p>
         <div class="btns"><button class="btn" id="seqClear" type="button">Clear all</button></div>
+      </div>
+    </details>
+
+    <details open>
+      <summary>Saved sequences <span class="sub" id="libSub"></span></summary>
+      <div class="seq">
+        <div class="lib-save">
+          <label for="seqName">Name</label>
+          <input id="seqName" type="text" maxlength="60" autocomplete="off" placeholder="My sequence">
+          <button class="btn primary" id="libSave" type="button">Save</button>
+        </div>
+        <div class="btns">
+          <button class="btn" id="fileSave" type="button" disabled>Save to file</button>
+          <button class="btn" id="fileOpen" type="button">Open file…</button>
+          <input id="fileIn" type="file" accept=".json,application/json" hidden>
+        </div>
+        <div class="status" id="libStatus" role="status"></div>
+        <ul class="lib" id="libList" aria-label="Sequences saved in this browser"></ul>
+        <p class="note">The list lives in this browser only. Save to file for a copy that opens on any computer, or to send to someone.</p>
       </div>
     </details>
 
@@ -388,7 +424,9 @@ const EASES = {
   in: { label: "Ease in", f: t => t * t * t },
   out: { label: "Ease out", f: t => 1 - Math.pow(1 - t, 3) },
 };
-const seq = { cards: [], playing: false, clock: 0, tau: 0, editing: null, nextId: 1 };
+// name: what the sequence is saved as. savedKey: its content when last saved or loaded, so the
+// page can tell whether there are unsaved changes before something replaces it.
+const seq = { cards: [], playing: false, clock: 0, tau: 0, editing: null, nextId: 1, name: "", savedKey: null };
 const seqTotal = () => seq.cards.reduce((s, c) => s + c.hold + c.blend, 0);
 // Where the sequence is at time t: card i (held, u = 0) or card i morphing into j (0 < u < 1).
 function seqAt(t) {
@@ -1062,7 +1100,11 @@ function seqUpdateRange() {
   const opt = document.querySelector('#recLen option[value="seq"]');
   opt.disabled = !ok;
   opt.textContent = ok ? `One sequence loop (${total.toFixed(1)} s)` : "One sequence loop (needs 2 looks)";
-  document.getElementById("seqSub").textContent = seq.cards.length ? `${seq.cards.length} looks · ${total.toFixed(1)} s` : "";
+  const bits = [];
+  if (seq.name) bits.push(seq.name);
+  if (seq.cards.length) bits.push(`${seq.cards.length} looks · ${total.toFixed(1)} s`);
+  if (seqDirty()) bits.push("unsaved");
+  document.getElementById("seqSub").textContent = bits.join(" · ");
 }
 
 let lastSeqLabel = "";
@@ -1139,13 +1181,208 @@ document.getElementById("seqClear").addEventListener("click", e => {
   seqStatusEl.textContent = "Sequence cleared.";
 });
 
+// ---------- saved sequences: a named library in this browser, plus files ----------
+const LIB_STORE = "ring-loom-library-v1";
+const seqKey = () => JSON.stringify(cardsForSave());
+function seqDirty() { return seq.cards.length > 0 && seqKey() !== seq.savedKey; }
+
+// null means the browser refused storage (private window, blocked site data) -- the caller must
+// say so rather than act as if the library were empty or the save had worked.
+function readLibrary() {
+  try {
+    const v = JSON.parse(localStorage.getItem(LIB_STORE) || "[]");
+    return Array.isArray(v) ? v.filter(e => e && typeof e.name === "string" && Array.isArray(e.sequence)) : [];
+  } catch { return null; }
+}
+function writeLibrary(list) {
+  try {
+    const s = JSON.stringify(list);
+    localStorage.setItem(LIB_STORE, s);
+    return localStorage.getItem(LIB_STORE) === s;  // a write can "succeed" and keep nothing
+  } catch { return false; }
+}
+function libraryUpsert(list, entry) {
+  const i = list.findIndex(e => e.name.toLowerCase() === entry.name.toLowerCase());
+  if (i >= 0) list[i] = entry; else list.push(entry);
+  return list;
+}
+// Reads a sequence file or a pasted settings code. Throws with a message fit to show the viewer.
+function parseSequenceFile(text, fallbackName) {
+  let obj;
+  try { obj = JSON.parse(text); } catch { throw new Error("That file isn't a Ring Loom sequence: it isn't JSON."); }
+  if (!obj || !Array.isArray(obj.sequence)) throw new Error("That file has no sequence in it. Save one with Save to file first.");
+  const cards = obj.sequence.map(cleanCard).filter(Boolean);
+  const skipped = obj.sequence.length - cards.length;
+  if (!cards.length) throw new Error(`None of the ${obj.sequence.length} looks in that file could be read.`);
+  const name = typeof obj.name === "string" && obj.name.trim() ? obj.name.trim().slice(0, 60) : fallbackName;
+  return { cards, name, skipped };
+}
+const sequenceFileData = () =>
+  JSON.stringify({ ringLoom: 1, kind: "sequence", name: seq.name || "Untitled", savedAt: new Date().toISOString(), sequence: cardsForSave() }, null, 1);
+const slug = s => (s || "sequence").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "sequence";
+
+const libListEl = document.getElementById("libList"), libStatusEl = document.getElementById("libStatus");
+const seqNameEl = document.getElementById("seqName");
+
+// Two-step confirmations (the page can't show confirm dialogs). arm(key) is true on the second
+// press of the same key within 4 s.
+let armedKey = null, armTimer = 0;
+function arm(key, message) {
+  if (armedKey === key) { clearTimeout(armTimer); armedKey = null; return true; }
+  armedKey = key;
+  clearTimeout(armTimer);
+  armTimer = setTimeout(() => { armedKey = null; }, 4000);
+  libStatusEl.textContent = message;
+  return false;
+}
+
+function useSequence(cards, name, how) {
+  if (seq.playing) stopSeq();
+  seq.cards = cards;
+  seq.editing = null;
+  seq.name = name;
+  seq.savedKey = seqKey();
+  seqNameEl.value = name;
+  renderSeq();
+  renderLibrary();
+  persist();
+  libStatusEl.textContent = how;
+}
+
+function renderLibrary() {
+  const list = readLibrary();
+  libListEl.textContent = "";
+  if (list === null) {
+    document.getElementById("libSub").textContent = "";
+    const li = document.createElement("li");
+    li.className = "lib-empty";
+    li.textContent = "This browser isn't letting the page store data, so the list can't be used here. Save to file still works.";
+    libListEl.append(li);
+    return;
+  }
+  document.getElementById("libSub").textContent = list.length ? `${list.length} saved` : "";
+  if (!list.length) {
+    const li = document.createElement("li");
+    li.className = "lib-empty";
+    li.textContent = "Nothing saved yet. Name the current sequence above and press Save.";
+    libListEl.append(li);
+    return;
+  }
+  list.slice().sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt))).forEach(entry => {
+    const li = document.createElement("li");
+    if (entry.name === seq.name) li.className = "current";
+    const info = document.createElement("div");
+    const nm = document.createElement("div");
+    nm.className = "lib-name"; nm.textContent = entry.name;
+    const meta = document.createElement("div");
+    meta.className = "lib-meta";
+    const secs = entry.sequence.reduce((s, c) => s + (+c.hold || 0) + (+c.blend || 0), 0);
+    const when = new Date(entry.savedAt);
+    meta.textContent = `${entry.sequence.length} looks · ${secs.toFixed(1)} s` +
+      (isNaN(when) ? "" : ` · ${when.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${when.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`);
+    info.append(nm, meta);
+    const btns = document.createElement("div");
+    btns.className = "lib-btns";
+    const mk = (text, label, fn) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "icon"; b.textContent = text; b.title = label;
+      b.setAttribute("aria-label", `${label}: ${entry.name}`);
+      b.addEventListener("click", fn);
+      btns.append(b);
+    };
+    mk("Load", "Load this sequence", () => {
+      // Reloading the sequence you're editing also throws your changes away, so it asks too.
+      if (seqDirty() && !arm("load:" + entry.name, entry.name === seq.name
+          ? `Your changes to "${entry.name}" aren't saved. Press Load again to discard them and go back to the saved version.`
+          : `The current sequence has unsaved changes. Press Load again to replace it with "${entry.name}".`)) return;
+      const cards = entry.sequence.map(cleanCard).filter(Boolean);
+      const skipped = entry.sequence.length - cards.length;
+      if (!cards.length) { libStatusEl.textContent = `"${entry.name}" has no looks that could be read.`; return; }
+      useSequence(cards, entry.name, `Loaded "${entry.name}".` + (skipped ? ` ${skipped} look${skipped === 1 ? "" : "s"} couldn't be read and were skipped.` : ""));
+    });
+    mk("File", "Save this sequence to a file", () => {
+      if (!downloads) { libStatusEl.textContent = "Saving files isn't available in this view."; return; }
+      const data = JSON.stringify({ ringLoom: 1, kind: "sequence", name: entry.name, savedAt: entry.savedAt, sequence: entry.sequence }, null, 1);
+      offer(`${slug(entry.name)}.ringloom.json`, data).then(() => { libStatusEl.textContent = statusEl.textContent; });
+    });
+    mk("✕", "Delete from this browser", () => {
+      if (!arm("del:" + entry.name, `Press ✕ again to delete "${entry.name}" from this browser.`)) return;
+      const rest = (readLibrary() || []).filter(e => e.name !== entry.name);
+      if (!writeLibrary(rest)) { libStatusEl.textContent = "Couldn't update the saved list in this browser."; return; }
+      renderLibrary();
+      libStatusEl.textContent = `Deleted "${entry.name}".`;
+    });
+    li.append(info, btns);
+    libListEl.append(li);
+  });
+}
+
+document.getElementById("libSave").addEventListener("click", () => {
+  if (!seq.cards.length) { libStatusEl.textContent = "Add at least one look to the sequence before saving it."; return; }
+  const name = (seqNameEl.value.trim() || seq.name || "").slice(0, 60);
+  if (!name) { libStatusEl.textContent = "Give the sequence a name first."; seqNameEl.focus(); return; }
+  const list = readLibrary();
+  if (list === null) { libStatusEl.textContent = "This browser isn't letting the page store data. Use Save to file instead."; return; }
+  const clash = list.find(e => e.name.toLowerCase() === name.toLowerCase());
+  if (clash && clash.name !== seq.name && !arm("save:" + name.toLowerCase(),
+      `"${clash.name}" is already saved. Press Save again to replace it.`)) return;
+  const entry = { name, savedAt: new Date().toISOString(), sequence: cardsForSave() };
+  if (!writeLibrary(libraryUpsert(list, entry))) {
+    libStatusEl.textContent = "The browser didn't keep the save (storage may be full or blocked). Use Save to file instead.";
+    return;
+  }
+  seq.name = name;
+  seq.savedKey = seqKey();
+  seqNameEl.value = name;
+  renderLibrary();
+  seqUpdateRange();
+  persist();
+  libStatusEl.textContent = `Saved "${name}" in this browser.`;
+});
+seqNameEl.addEventListener("keydown", e => { if (e.key === "Enter") document.getElementById("libSave").click(); });
+
+document.getElementById("fileSave").addEventListener("click", () => {
+  if (!seq.cards.length) { libStatusEl.textContent = "Add at least one look to the sequence before saving it."; return; }
+  if (!downloads) { libStatusEl.textContent = "Saving files isn't available in this view."; return; }
+  const name = seqNameEl.value.trim() || seq.name || "Untitled";
+  seq.name = name;
+  const key = seqKey();
+  offer(`${slug(name)}.ringloom.json`, sequenceFileData()).then(ok => {
+    libStatusEl.textContent = statusEl.textContent;
+    if (ok) { seq.savedKey = key; seqUpdateRange(); persist(); }
+  });
+});
+const fileIn = document.getElementById("fileIn");
+document.getElementById("fileOpen").addEventListener("click", () => {
+  if (seqDirty() && !arm("open", "The current sequence has unsaved changes. Press Open file again to replace it.")) return;
+  fileIn.value = "";
+  fileIn.click();
+});
+fileIn.addEventListener("change", async () => {
+  const file = fileIn.files && fileIn.files[0];
+  if (!file) return;
+  try {
+    const { cards, name, skipped } = parseSequenceFile(await file.text(), file.name.replace(/\.ringloom\.json$|\.json$/i, ""));
+    useSequence(cards, name, `Opened "${name}" from ${file.name}.` +
+      (skipped ? ` ${skipped} look${skipped === 1 ? "" : "s"} couldn't be read and were skipped.` : "") +
+      " Press Save to keep it in this browser too.");
+  } catch (err) {
+    libStatusEl.textContent = err.message;
+  }
+});
+
 // ---------- remembered settings (this browser only) ----------
 const STORE = "ring-loom-v1";
 let persistTimer = 0;
 function persist() {
+  seqUpdateRange();  // keeps the "unsaved" tag current as cards change
   clearTimeout(persistTimer);
   persistTimer = setTimeout(() => {
-    try { localStorage.setItem(STORE, JSON.stringify({ params, seed, activePreset, sequence: cardsForSave() })); } catch { /* storage unavailable */ }
+    try {
+      localStorage.setItem(STORE, JSON.stringify({
+        params, seed, activePreset, sequence: cardsForSave(), seqName: seq.name, seqSavedKey: seq.savedKey,
+      }));
+    } catch { /* storage unavailable: the working state just won't be remembered */ }
   }, 300);
 }
 function cleanParams(raw) {
@@ -1175,10 +1412,12 @@ const REC_MIME = (() => {
 })();
 
 function stamp() { return activePreset ? activePreset.toLowerCase().replace(/\s+/g, "-") : `seed-${seed}`; }
+// Resolves true only when the viewer accepted the save.
 async function offer(filename, data) {
   try {
     await downloads.save({ filename, data });
     statusEl.textContent = `Saved ${filename}.`;
+    return true;
   } catch (err) {
     const code = err && err.code;
     statusEl.textContent =
@@ -1186,6 +1425,7 @@ async function offer(filename, data) {
       code === "rate_limited" ? "A save prompt is already open. Finish that one first." :
       code === "too_large" ? "That file is too large to save here. Try a shorter clip." :
       `Couldn't save the file (${code || "unknown error"}).`;
+    return false;
   }
 }
 document.getElementById("savePng").addEventListener("click", () => {
@@ -1267,6 +1507,7 @@ async function initDownloads() {
   }
   saveBtns[0].disabled = false;
   saveBtns[1].disabled = false;
+  document.getElementById("fileSave").disabled = false;
   saveBtns[2].disabled = !REC_MIME;
   const how = downloads === browserDownloads ? "Files go to your downloads folder." : "Each save asks you to confirm.";
   statusEl.textContent = REC_MIME ? how : `${how} This browser can't record clips.`;
@@ -1314,11 +1555,16 @@ function start(data) {
     makeCard(Object.assign(defaults(), PRESETS["Rolling sphere"]), "Rolling sphere"),
     makeCard(Object.assign(defaults(), PRESETS["Star weave"]), "Star weave"),
   ];
+  if (saved && typeof saved.seqName === "string") seq.name = saved.seqName.slice(0, 60);
+  if (saved && typeof saved.seqSavedKey === "string") seq.savedKey = saved.seqSavedKey;
+  if (!savedCards) { seq.name = "Example"; seq.savedKey = seqKey(); }  // not "unsaved work" to guard
+  seqNameEl.value = seq.name;
   buildControls();
   buildPresets();
   syncUI();
   resize();
   renderSeq();
+  renderLibrary();
   requestAnimationFrame(tick);
   initDownloads();
   window.claude?.hot?.snapshot?.(() => ({ params, seed, activePreset, T, sequence: cardsForSave() }));

@@ -6,7 +6,20 @@ const html = fs.readFileSync(process.argv[2], "utf8");
 let js = html.match(/<script>([\s\S]*)<\/script>/)[1];
 const hook = "function draw() { renderFrame(currentFrame()); }";
 if (!js.includes(hook)) { console.error("FAIL: draw() hook line not found; update this test"); process.exit(1); }
-js = js.replace(hook, hook + "\nglobalThis.__t = { computeFrame, blendFrames, pairUp, seqAt, seq, EASES, defaults, PRESETS, START_PARAMS, cleanParams };");
+// Getters, not values: the hook line sits above some of these declarations, so reading them
+// eagerly would hit the temporal dead zone. By the time the checks run, all exist.
+const exposed = ["computeFrame", "blendFrames", "pairUp", "seqAt", "seq", "EASES", "defaults", "PRESETS", "START_PARAMS", "cleanParams",
+  "readLibrary", "writeLibrary", "libraryUpsert", "parseSequenceFile", "sequenceFileData", "cardsForSave", "makeCard", "seqDirty", "seqKey"];
+js = js.replace(hook, hook + "\nglobalThis.__t = {" + exposed.map(n => `get ${n}() { return ${n}; }`).join(", ") + "};");
+
+// In-memory localStorage whose behaviour the library tests can switch: normal, throwing
+// (private window / blocked data) or silently dropping writes (full storage on some browsers).
+const mem = new Map();
+let storageMode = "ok";
+const storage = {
+  getItem: k => { if (storageMode === "throw") throw new Error("blocked"); return mem.has(k) ? mem.get(k) : null; },
+  setItem: (k, v) => { if (storageMode === "throw") throw new Error("blocked"); if (storageMode !== "drop") mem.set(k, String(v)); },
+};
 
 const stub = () => new Proxy(function () {}, {
   get: (t, k) => {
@@ -25,7 +38,7 @@ const g = {
   document: stub(), matchMedia: () => ({ matches: false }), devicePixelRatio: 1,
   ResizeObserver: class { observe() {} }, Path2D: class { moveTo() {} lineTo() {} },
   requestAnimationFrame: fn => { if (frames++ < 3) setTimeout(() => fn(frames * 16), 0); },
-  performance: { now: () => 0 }, localStorage: { getItem: () => null, setItem() {} },
+  performance: { now: () => 0 }, localStorage: storage,
   navigator: {}, addEventListener() {}, setTimeout, clearTimeout, setInterval, clearInterval, console,
 };
 g.window = g;
@@ -92,6 +105,46 @@ setTimeout(() => {
   check("seqAt wraps after one loop", a4.i === 0 && a4.u === 0);
   const ends = Object.entries(t.EASES).every(([, e]) => Math.abs(e.f(0)) < 1e-12 && Math.abs(e.f(1) - 1) < 1e-12);
   check("every easing runs 0 -> 1", ends);
+
+  // ---- saving: files and the in-browser library ----
+  t.seq.cards = [t.makeCard(A, "First"), t.makeCard(B, "Second")];
+  t.seq.cards[0].hold = 1.5; t.seq.cards[1].blend = 7; t.seq.cards[1].ease = "out";
+  t.seq.name = "Round trip";
+  const before = JSON.stringify(t.cardsForSave());
+  const parsed = t.parseSequenceFile(t.sequenceFileData(), "fallback");
+  const after = JSON.stringify(parsed.cards.map(({ name, params, hold, blend, ease }) => ({ name, params, hold, blend, ease })));
+  check("file round trip keeps every look, time and easing", before === after && parsed.name === "Round trip" && parsed.skipped === 0);
+
+  const code = JSON.stringify({ ringLoom: 1, params: A, sequence: t.cardsForSave() });
+  check("a pasted settings code opens as a sequence", t.parseSequenceFile(code, "x").cards.length === 2);
+  const msg = f => { try { f(); return null; } catch (e) { return e.message; } };
+  check("non-JSON file is refused with a reason", /isn't JSON/.test(msg(() => t.parseSequenceFile("not json", "x")) || ""));
+  check("JSON without a sequence is refused", /no sequence/.test(msg(() => t.parseSequenceFile('{"a":1}', "x")) || ""));
+  const partial = t.parseSequenceFile(JSON.stringify({ sequence: [t.cardsForSave()[0], { junk: true }, null] }), "Partial");
+  check("unreadable looks are counted, not silently dropped", partial.cards.length === 1 && partial.skipped === 2, `kept ${partial.cards.length}, skipped ${partial.skipped}`);
+  check("a file with no readable looks is refused", /None of the 2 looks/.test(msg(() => t.parseSequenceFile('{"sequence":[1,2]}', "x")) || ""));
+
+  storageMode = "ok"; mem.clear();
+  const entry = n => ({ name: n, savedAt: new Date().toISOString(), sequence: t.cardsForSave() });
+  let list = t.readLibrary();
+  check("empty library reads as []", Array.isArray(list) && list.length === 0);
+  check("library write is confirmed", t.writeLibrary(t.libraryUpsert(list, entry("Night drive"))));
+  list = t.libraryUpsert(t.readLibrary(), entry("NIGHT DRIVE"));
+  t.writeLibrary(list);
+  const lib = t.readLibrary();
+  check("saving the same name replaces, not duplicates", lib.length === 1 && lib[0].name === "NIGHT DRIVE");
+  check("library entry keeps the whole sequence", JSON.stringify(lib[0].sequence) === before);
+  storageMode = "throw";
+  check("blocked storage reads as unavailable, not empty", t.readLibrary() === null);
+  check("blocked storage write reports failure", t.writeLibrary([]) === false);
+  storageMode = "drop";
+  check("a write the browser silently drops reports failure", t.writeLibrary([entry("Lost")]) === false);
+  storageMode = "ok";
+
+  t.seq.savedKey = t.seqKey();
+  const clean = !t.seqDirty();
+  t.seq.cards[0].hold = 2.5;
+  check("editing a card marks the sequence unsaved", clean && t.seqDirty());
 
   process.exit(failed ? 1 : 0);
 }, 150);
