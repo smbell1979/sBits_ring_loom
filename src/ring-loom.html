@@ -19,6 +19,9 @@
   --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
 }
 html, body { height: 100%; }
+/* The Claude artifact host supplies this; the standalone (Vercel) page needs its own, or rules like
+   .row { display: grid } override the hidden attribute and every hidden control shows. */
+[hidden] { display: none !important; }
 body { margin: 0; background: var(--ink); color: var(--fg); font-family: var(--ui); font-size: 14px; }
 * { box-sizing: border-box; }
 
@@ -101,6 +104,41 @@ summary .sub { text-transform: none; letter-spacing: 0; font-weight: 400; color:
 .row input[type=color] { grid-column: 2 / 4; width: 100%; height: 26px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 2px; }
 .row input[type=checkbox] { justify-self: start; accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
 
+.row.idle { opacity: 0.38; }
+.row.idle label { text-decoration: underline dotted; text-underline-offset: 3px; }
+
+.seq { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.card {
+  display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; align-items: center;
+  padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2);
+}
+.card.now { border-color: var(--accent); }
+.card.editing { box-shadow: inset 3px 0 0 var(--hot); }
+.thumb { padding: 0; border: 0; background: #000; border-radius: 4px; cursor: pointer; width: 56px; height: 56px; display: block; }
+.thumb canvas { width: 56px; height: 56px; display: block; border-radius: 4px; }
+.card-body { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.card-top { display: flex; gap: 4px; align-items: center; }
+.card-name {
+  flex: 1; min-width: 0; background: transparent; border: 1px solid transparent; border-radius: 3px;
+  color: var(--fg); font: 500 13px var(--ui); padding: 2px 4px;
+}
+.card-name:hover, .card-name:focus { border-color: var(--line); }
+.icon {
+  background: transparent; border: 1px solid var(--line); color: var(--muted); border-radius: 3px;
+  font: 12px/1 var(--mono); padding: 4px 6px; cursor: pointer;
+}
+.icon:hover { color: var(--fg); border-color: var(--muted); }
+.icon:disabled { opacity: 0.3; cursor: not-allowed; }
+.card-times { display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 6px; }
+.card-times label { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.card-times input, .card-times select {
+  width: 100%; min-width: 0; background: var(--panel); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 3px; padding: 3px 4px; font: 12px var(--mono); font-variant-numeric: tabular-nums;
+  text-transform: none; letter-spacing: 0;
+}
+.card-times select { font-family: var(--ui); }
+
 .save { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .save select { background: var(--panel-2); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 6px; font: 13px var(--ui); }
 .status { font-size: 12.5px; color: var(--muted); min-height: 1.3em; line-height: 1.4; }
@@ -152,6 +190,25 @@ textarea {
     <details open><summary>Look</summary><div class="rows" id="g-look"></div></details>
 
     <details open>
+      <summary>Sequence <span class="sub" id="seqSub"></span></summary>
+      <div class="seq">
+        <div class="btns">
+          <button class="btn" id="seqAdd" type="button">Add current look</button>
+          <button class="btn primary" id="seqPlay" type="button">Play sequence</button>
+        </div>
+        <ol class="cards" id="seqCards" aria-label="Looks in the sequence"></ol>
+        <div class="row">
+          <label for="seqPos">Position</label>
+          <input type="range" id="seqPos" min="0" max="1" step="0.01" value="0">
+          <output id="seqPosOut" for="seqPos">0.0 s</output>
+        </div>
+        <div class="status" id="seqStatus" role="status"></div>
+        <p class="note">Each look holds, then morphs into the next one, and the last one morphs back into the first. Every ring point travels to its new place while both looks keep moving. Generator, shape and ring-count changes become motion instead of a cut. Click a look's picture to edit it, then press Update to store the change.</p>
+        <div class="btns"><button class="btn" id="seqClear" type="button">Clear all</button></div>
+      </div>
+    </details>
+
+    <details open>
       <summary>Save</summary>
       <div class="save">
         <div class="btns">
@@ -163,6 +220,7 @@ textarea {
             <option value="4">4 s clip</option>
             <option value="8" selected>8 s clip</option>
             <option value="16">16 s clip</option>
+            <option value="seq">One sequence loop</option>
           </select>
           <button class="btn rec" id="saveVid" type="button" disabled>Record clip</button>
         </div>
@@ -221,19 +279,24 @@ const PALETTES = {
 };
 const paletteLabels = Object.fromEntries(Object.entries(PALETTES).map(([k, v]) => [k, v.label]));
 
+// idle(p): why a control has no effect right now (shown dimmed with this as a tooltip), or null.
+const FLAT_GENS = new Set(["cover", "again", "blend", "harmono"]);
+const IDLE_HARMONO = p => p.gen === "harmono" ? "Harmonograph draws its own curves, so the base shape is ignored." : null;
+const IDLE_NO_WOBBLE = p => p.wobble === 0 ? "No effect while Wobble is 0." : null;
+
 // r: randomize range (null = never randomized). rp: chance the randomizer moves it off its default.
 const SCHEMA = [
   { id: "gen", group: "shape", label: "Generator", type: "select", options: GENS, def: "cover" },
-  { id: "base", group: "shape", label: "Base shape", type: "select", options: BASES, def: "circle" },
-  { id: "sides", group: "shape", label: "Sides / points", type: "range", min: 3, max: 16, step: 1, def: 5, r: [3, 9], when: p => HAS_SIDES.has(p.base) },
-  { id: "depth", group: "shape", label: "Point depth", type: "range", min: 0, max: 0.9, step: 0.01, def: 0.45, r: [0.2, 0.7], when: p => p.base === "star" || p.base === "flower" },
-  { id: "superexp", group: "shape", label: "Squareness", type: "range", min: 0.4, max: 5, step: 0.01, def: 2, r: [0.8, 4.2], rp: 0.35, when: p => p.base === "circle" },
+  { id: "base", group: "shape", label: "Base shape", type: "select", options: BASES, def: "circle", idle: IDLE_HARMONO },
+  { id: "sides", group: "shape", label: "Sides / points", type: "range", min: 3, max: 16, step: 1, def: 5, r: [3, 9], when: p => HAS_SIDES.has(p.base), idle: IDLE_HARMONO },
+  { id: "depth", group: "shape", label: "Point depth", type: "range", min: 0, max: 0.9, step: 0.01, def: 0.45, r: [0.2, 0.7], when: p => p.base === "star" || p.base === "flower", idle: IDLE_HARMONO },
+  { id: "superexp", group: "shape", label: "Squareness", type: "range", min: 0.4, max: 5, step: 0.01, def: 2, r: [0.8, 4.2], rp: 0.35, when: p => p.base === "circle", idle: IDLE_HARMONO },
   { id: "rings", group: "shape", label: "Rings", type: "range", min: 2, max: 140, step: 1, def: 31, r: [18, 90] },
   { id: "res", group: "shape", label: "Smoothness", type: "range", min: 48, max: 720, step: 8, def: 360, r: null },
   { id: "wobble", group: "shape", label: "Wobble", type: "range", min: 0, max: 0.45, step: 0.005, def: 0, r: [0.02, 0.22], rp: 0.5 },
-  { id: "lobes", group: "shape", label: "Lobes", type: "range", min: 0, max: 24, step: 1, def: 5, r: [2, 12] },
-  { id: "ringPhase", group: "shape", label: "Lobe shift", type: "range", min: 0, max: 0.5, step: 0.001, def: 0.03, r: [0, 0.2] },
-  { id: "wobbleSpeed", group: "shape", label: "Lobe speed", type: "range", min: -4, max: 4, step: 0.01, def: 0.8, r: [-2, 2] },
+  { id: "lobes", group: "shape", label: "Lobes", type: "range", min: 0, max: 24, step: 1, def: 5, r: [2, 12], idle: IDLE_NO_WOBBLE },
+  { id: "ringPhase", group: "shape", label: "Lobe shift", type: "range", min: 0, max: 0.5, step: 0.001, def: 0.03, r: [0, 0.2], idle: IDLE_NO_WOBBLE },
+  { id: "wobbleSpeed", group: "shape", label: "Lobe speed", type: "range", min: -4, max: 4, step: 0.01, def: 0.8, r: [-2, 2], idle: IDLE_NO_WOBBLE },
 
   { id: "flare", gen: "cover", label: "Side flare", type: "range", min: 0, max: 4, step: 0.01, def: 1, r: [0.5, 3] },
   { id: "squash", gen: "cover", label: "Minor scale", type: "range", min: 0.2, max: 1.6, step: 0.01, def: 1, r: [0.6, 1.3] },
@@ -270,7 +333,8 @@ const SCHEMA = [
   { id: "spin", group: "motion", label: "Spin °/s", type: "range", min: -60, max: 60, step: 0.5, def: 0, r: [-15, 15], rp: 0.4 },
   { id: "yaw", group: "motion", label: "View yaw", type: "range", min: -180, max: 180, step: 0.5, def: 0, r: [-40, 40], rp: 0.3 },
   { id: "pitch", group: "motion", label: "View pitch", type: "range", min: -89, max: 89, step: 0.5, def: 0, r: [-60, 60], rp: 0.35 },
-  { id: "persp", group: "motion", label: "Perspective", type: "range", min: 0, max: 1, step: 0.01, def: 0, r: [0, 0.8], rp: 0.35 },
+  { id: "persp", group: "motion", label: "Perspective", type: "range", min: 0, max: 1, step: 0.01, def: 0, r: [0, 0.8], rp: 0.35,
+    idle: p => (FLAT_GENS.has(p.gen) && p.yaw === 0 && p.pitch === 0) ? "No effect on a flat generator until the view is tilted with View yaw or View pitch." : null },
   { id: "zoom", group: "motion", label: "Zoom", type: "range", min: 0.3, max: 2.5, step: 0.01, def: 0.95, r: null },
 
   { id: "palette", group: "look", label: "Colour", type: "select", options: paletteLabels, def: "ice" },
@@ -280,7 +344,8 @@ const SCHEMA = [
   { id: "cycle", group: "look", label: "Cycle °/s", type: "range", min: -120, max: 120, step: 1, def: 0, r: [-60, 60], rp: 0.6 },
   { id: "width", group: "look", label: "Line width", type: "range", min: 0.25, max: 5, step: 0.05, def: 1.1, r: [0.5, 2.2] },
   { id: "alphaL", group: "look", label: "Opacity", type: "range", min: 0.05, max: 1, step: 0.01, def: 0.85, r: [0.4, 1] },
-  { id: "glow", group: "look", label: "Glow", type: "range", min: 0, max: 40, step: 0.5, def: 4, r: [0, 18] },
+  { id: "glow", group: "look", label: "Glow", type: "range", min: 0, max: 40, step: 0.5, def: 4, r: [0, 18],
+    idle: () => FILTER_OK ? null : "This browser can't blur the canvas, so glow isn't drawn." },
   { id: "trails", group: "look", label: "Trails", type: "range", min: 0, max: 0.97, step: 0.01, def: 0, r: [0.3, 0.9], rp: 0.4 },
   { id: "mirror", group: "look", label: "Kaleidoscope", type: "range", min: 1, max: 12, step: 1, def: 1, r: [2, 8], rp: 0.3 },
   { id: "additive", group: "look", label: "Light blend", type: "toggle", def: true },
@@ -315,6 +380,30 @@ let playing = !matchMedia("(prefers-reduced-motion: reduce)").matches;
 let dirty = true;
 let activePreset = null;
 let lastFrame = null;
+
+// Sequence: looks played in order, each held, then morphed into the next (the last into the first).
+const EASES = {
+  smooth: { label: "Smooth", f: t => t * t * t * (t * (t * 6 - 15) + 10) },
+  linear: { label: "Linear", f: t => t },
+  in: { label: "Ease in", f: t => t * t * t },
+  out: { label: "Ease out", f: t => 1 - Math.pow(1 - t, 3) },
+};
+const seq = { cards: [], playing: false, clock: 0, tau: 0, editing: null, nextId: 1 };
+const seqTotal = () => seq.cards.reduce((s, c) => s + c.hold + c.blend, 0);
+// Where the sequence is at time t: card i (held, u = 0) or card i morphing into j (0 < u < 1).
+function seqAt(t) {
+  const n = seq.cards.length, total = seqTotal();
+  if (n < 2 || total <= 0) return null;
+  let r = ((t % total) + total) % total;
+  for (let i = 0; i < n; i++) {
+    const c = seq.cards[i];
+    if (r < c.hold) return { i, j: i, u: 0, e: 0 };
+    r -= c.hold;
+    if (r < c.blend) { const u = r / c.blend; return { i, j: (i + 1) % n, u, e: EASES[c.ease].f(u) }; }
+    r -= c.blend;
+  }
+  return { i: n - 1, j: 0, u: 0, e: 0 };
+}
 
 // ---------- random ----------
 function mulberry32(a) {
@@ -380,20 +469,20 @@ function hslToRgb(h, s, l) {
   const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
   return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
 }
+// Returns ring position u (0 outer .. 1 inner) -> [r, g, b]. RGB rather than hex so that
+// sequence blends can interpolate colour per ring.
 function makeColorFn(p, time) {
   const shift = time * p.cycle / 360;
-  if (p.palette === "spectrum") {
-    return u => { const [r, g, b] = hslToRgb((u * p.spread + shift) * 300, 0.95, 0.62); return rgbToHex(r, g, b); };
-  }
+  if (p.palette === "spectrum") return u => hslToRgb((u * p.spread + shift) * 300, 0.95, 0.62);
   const stops = (p.palette === "custom" ? [p.colorA, p.colorB] : PALETTES[p.palette].stops).map(hexToRgb);
   return u => {
     const x = u * p.spread + shift;
     let t = x - Math.floor(x);
     if (((Math.floor(x) % 2) + 2) % 2 === 1) t = 1 - t;  // ping-pong so cycling has no seam
-    if (stops.length === 1) return rgbToHex(...stops[0]);
+    if (stops.length === 1) return stops[0].slice();
     const f = t * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(f)), w = f - i;
     const a = stops[i], b = stops[i + 1];
-    return rgbToHex(lerp(a[0], b[0], w), lerp(a[1], b[1], w), lerp(a[2], b[2], w));
+    return [lerp(a[0], b[0], w), lerp(a[1], b[1], w), lerp(a[2], b[2], w)];
   };
 }
 
@@ -485,7 +574,7 @@ function baseXY(th, c, s, p, e) {
 }
 
 function ringPoints(k, N, M, time, ctx) {
-  const p = params, u = N > 1 ? k / (N - 1) : 0;
+  const p = ctx.p, u = N > 1 ? k / (N - 1) : 0;
   const out = new Float32Array(2 * (M + 1));
   const e = 2 / p.superexp, lobes = Math.round(p.lobes), wob = p.wobble;
   const wph = TAU * p.ringPhase * k + p.wobbleSpeed * time;
@@ -546,63 +635,148 @@ function resize() {
 }
 new ResizeObserver(resize).observe(stage);
 
-function draw() {
-  const p = params, N = Math.round(p.rings), M = Math.round(p.res);
-  const V = mat3(mat3(rx3(p.pitch), ry3(p.yaw)), rz3(p.rotate + p.spin * T));
+const LINEAR_GENS = new Set(["cover", "again", "blend"]);
+const evenCopies = m => Array.from({ length: m }, (_, i) => ({ angle: (i / m) * TAU, w: 1 }));
+
+// One look at one moment, as data: every ring as screen-space points (CSS px about the centre)
+// with its colour and brightness share, plus the look's drawing settings. Sequence blends work on
+// these, which is what lets a generator, base-shape or ring-count change morph instead of switch.
+// M forces a point count so two frames being blended line up point for point.
+function computeFrame(p, time, size, M) {
+  const N = Math.round(p.rings);
+  M = M || Math.round(p.res);
   const ctx = {
-    V, S: Math.min(cssW, cssH) * 0.44 * p.zoom, D: 2.4 + (1 - p.persp) * 40,
-    mats: (p.gen === "cover" || p.gen === "again" || p.gen === "blend") ? linearMats(p, N, T) : null,
+    p, V: mat3(mat3(rx3(p.pitch), ry3(p.yaw)), rz3(p.rotate + p.spin * time)),
+    S: size * 0.44 * p.zoom, D: 2.4 + (1 - p.persp) * 40,
+    mats: LINEAR_GENS.has(p.gen) ? linearMats(p, N, time) : null,
   };
-  const color = makeColorFn(p, T);
+  const color = makeColorFn(p, time);
   const rings = [];
   for (let k = 0; k < N; k++) {
-    const pts = ringPoints(k, N, M, T, ctx);
-    const path = new Path2D();
-    path.moveTo(pts[0], pts[1]);
-    for (let j = 2; j < pts.length; j += 2) path.lineTo(pts[j], pts[j + 1]);
-    rings.push({ pts, path, color: color(N > 1 ? k / (N - 1) : 0) });
+    rings.push({ pts: ringPoints(k, N, M, time, ctx), rgb: color(N > 1 ? k / (N - 1) : 0), w: 1 });
   }
+  return {
+    rings,
+    look: { width: p.width, alpha: p.alphaL, glow: p.glow, trails: p.trails, additive: p.additive,
+            bg: hexToRgb(p.bg), copies: evenCopies(Math.round(p.mirror)) },
+  };
+}
 
-  const W = view.width, H = view.height, mirror = Math.round(p.mirror);
+// Pairs two lists of different lengths without fading anything in or out. The longer list sets
+// the count; each element of the shorter one is shared by the run of elements mapped onto it.
+// Shared elements start exactly on top of each other with their brightness split (so the stack
+// reads as one line, even with light blending) and separate as the blend runs.
+function pairUp(na, nb) {
+  const n = Math.max(na, nb);
+  const map = (ns, i) => (ns === n ? i : Math.round((n > 1 ? i / (n - 1) : 0) * (ns - 1)));
+  const ia = [], ib = [], da = new Array(na).fill(0), db = new Array(nb).fill(0);
+  for (let i = 0; i < n; i++) { ia.push(map(na, i)); ib.push(map(nb, i)); da[ia[i]]++; db[ib[i]]++; }
+  return { n, ia, ib, wa: ia.map(k => 1 / da[k]), wb: ib.map(k => 1 / db[k]) };
+}
+
+function blendFrames(fa, fb, t) {
+  const R = pairUp(fa.rings.length, fb.rings.length);
+  const rings = [];
+  for (let i = 0; i < R.n; i++) {
+    const a = fa.rings[R.ia[i]], b = fb.rings[R.ib[i]];
+    const pts = new Float32Array(a.pts.length);
+    for (let j = 0; j < pts.length; j++) pts[j] = a.pts[j] + (b.pts[j] - a.pts[j]) * t;
+    rings.push({ pts, rgb: a.rgb.map((v, c) => lerp(v, b.rgb[c], t)), w: lerp(a.w * R.wa[i], b.w * R.wb[i], t) });
+  }
+  const la = fa.look, lb = fb.look, C = pairUp(la.copies.length, lb.copies.length);
+  const copies = [];
+  for (let i = 0; i < C.n; i++) {
+    const a = la.copies[C.ia[i]], b = lb.copies[C.ib[i]];
+    copies.push({ angle: lerp(a.angle, b.angle, t), w: lerp(a.w * C.wa[i], b.w * C.wb[i], t) });
+  }
+  return {
+    rings,
+    look: {
+      width: lerp(la.width, lb.width, t), alpha: lerp(la.alpha, lb.alpha, t),
+      glow: lerp(la.glow, lb.glow, t), trails: lerp(la.trails, lb.trails, t),
+      // The one setting that cannot be part-way: a line is either light-blended or not.
+      additive: t < 0.5 ? la.additive : lb.additive,
+      bg: la.bg.map((v, c) => lerp(v, lb.bg[c], t)), copies,
+    },
+  };
+}
+
+function renderFrame(f) {
+  const W = view.width, H = view.height, L = f.look;
+  const paths = f.rings.map(r => {
+    const path = new Path2D();
+    path.moveTo(r.pts[0], r.pts[1]);
+    for (let j = 2; j < r.pts.length; j += 2) path.lineTo(r.pts[j], r.pts[j + 1]);
+    return path;
+  });
+  const hex = f.rings.map(r => rgbToHex(...r.rgb));
   lctx.setTransform(1, 0, 0, 1, 0, 0);
   lctx.clearRect(0, 0, W, H);
-  lctx.globalCompositeOperation = p.additive ? "lighter" : "source-over";
-  lctx.globalAlpha = p.alphaL;
+  lctx.globalCompositeOperation = L.additive ? "lighter" : "source-over";
   lctx.lineJoin = "round";
-  for (let m = 0; m < mirror; m++) {
+  for (const cp of L.copies) {
     lctx.setTransform(dpr, 0, 0, dpr, W / 2, H / 2);
-    lctx.rotate((m / mirror) * TAU);
-    lctx.lineWidth = p.width;
-    for (const r of rings) { lctx.strokeStyle = r.color; lctx.stroke(r.path); }
+    lctx.rotate(cp.angle);
+    lctx.lineWidth = L.width;
+    for (let i = 0; i < paths.length; i++) {
+      lctx.globalAlpha = clamp(L.alpha * f.rings[i].w * cp.w, 0, 1);
+      lctx.strokeStyle = hex[i];
+      lctx.stroke(paths[i]);
+    }
   }
 
   vctx.setTransform(1, 0, 0, 1, 0, 0);
   vctx.globalCompositeOperation = "source-over";
-  vctx.globalAlpha = p.trails > 0 ? 1 - p.trails : 1;
-  vctx.fillStyle = p.bg;
+  vctx.globalAlpha = L.trails > 0 ? 1 - L.trails : 1;
+  vctx.fillStyle = rgbToHex(...L.bg);
   vctx.fillRect(0, 0, W, H);
-  if (p.glow > 0 && FILTER_OK) {
+  if (L.glow > 0 && FILTER_OK) {
     vctx.globalCompositeOperation = "lighter";
     vctx.globalAlpha = 0.85;
-    vctx.filter = `blur(${(p.glow * dpr).toFixed(1)}px)`;
+    vctx.filter = `blur(${(L.glow * dpr).toFixed(1)}px)`;
     vctx.drawImage(lines, 0, 0);
     vctx.filter = "none";
   }
-  vctx.globalCompositeOperation = p.additive ? "lighter" : "source-over";
+  vctx.globalCompositeOperation = L.additive ? "lighter" : "source-over";
   vctx.globalAlpha = 1;
   vctx.drawImage(lines, 0, 0);
 
-  lastFrame = { rings, w: cssW, h: cssH, mirror, width: p.width, alpha: p.alphaL, bg: p.bg, additive: p.additive };
+  lastFrame = { rings: f.rings, hex, look: L, w: cssW, h: cssH };
 }
+
+function currentFrame() {
+  const size = Math.min(cssW, cssH);
+  const at = seq.playing ? seqAt(seq.clock) : null;
+  if (!at) return computeFrame(params, T, size);
+  const a = seq.cards[at.i].params;
+  if (at.u <= 0) return computeFrame(a, seq.tau, size);
+  const b = seq.cards[at.j].params, M = Math.max(Math.round(a.res), Math.round(b.res));
+  return blendFrames(computeFrame(a, seq.tau, size, M), computeFrame(b, seq.tau, size, M), at.e);
+}
+function draw() { renderFrame(currentFrame()); }
 
 let lastTime = performance.now();
 function tick(now) {
   const dt = Math.min(0.05, (now - lastTime) / 1000);
   lastTime = now;
-  const animating = playing && params.speed > 0;
-  if (animating) T += dt * params.speed;
-  // Trails need continuous frames even when paused, otherwise they freeze half-faded.
-  if (animating || dirty || (params.trails > 0 && playing)) { draw(); dirty = false; }
+  if (seq.playing) {
+    if (playing) {
+      // Both looks in a blend share one animation clock (tau) whose rate blends between their
+      // Time speed settings, so neither look freezes or jumps while it morphs.
+      const at = seqAt(seq.clock);
+      const sp = !at ? 1 : at.u > 0 ? lerp(seq.cards[at.i].params.speed, seq.cards[at.j].params.speed, at.e) : seq.cards[at.i].params.speed;
+      seq.tau += dt * sp;
+      seq.clock += dt;
+      seqTickUI();
+    }
+    draw();
+    dirty = false;
+  } else {
+    const animating = playing && params.speed > 0;
+    if (animating) T += dt * params.speed;
+    // Trails need continuous frames even when paused, otherwise they freeze half-faded.
+    if (animating || dirty || (params.trails > 0 && playing)) { draw(); dirty = false; }
+  }
   requestAnimationFrame(tick);
 }
 
@@ -653,6 +827,7 @@ function syncUI() {
     if (out) out.value = fmt(s, v);
     row.hidden = (s.gen && s.gen !== params.gen) || (s.when && !s.when(params));
   }
+  updateIdle();
   document.getElementById("genSub").textContent = GENS[params.gen];
   document.getElementById("hudGen").textContent = GENS[params.gen];
   document.getElementById("hudSeed").textContent = activePreset ? `preset · ${activePreset}` : `seed ${seed}`;
@@ -661,10 +836,20 @@ function syncUI() {
   const pb = document.getElementById("play");
   pb.firstChild.textContent = playing ? "Pause" : "Play";
 }
+// Dim controls that do nothing in the current combination; the tooltip says why.
+function updateIdle() {
+  for (const { s, row } of Object.values(inputs)) {
+    const why = s.idle ? s.idle(params) : null;
+    row.classList.toggle("idle", !!why);
+    row.title = why || "";
+  }
+}
 function setParam(id, v, fromUI) {
+  if (seq.playing) stopSeq();  // an edit should show on screen, not hide behind the sequence
   params[id] = v;
   activePreset = null;
   dirty = true;
+  updateIdle();
   const needsLayout = id === "gen" || id === "palette" || id === "base";
   if (!fromUI || needsLayout) syncUI();
   else {
@@ -676,6 +861,7 @@ function setParam(id, v, fromUI) {
   persist();
 }
 function applyParams(p, presetName) {
+  if (seq.playing) stopSeq();
   params = Object.assign(defaults(), p);
   activePreset = presetName || null;
   dirty = true;
@@ -707,7 +893,7 @@ document.getElementById("seedGo").addEventListener("click", () => {
 document.getElementById("seedIn").addEventListener("keydown", e => { if (e.key === "Enter") document.getElementById("seedGo").click(); });
 
 window.addEventListener("keydown", e => {
-  if (e.target.matches("input[type=text], textarea, select")) return;
+  if (e.target.matches("input[type=text], input[type=number], textarea, select")) return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.code === "Space") { e.preventDefault(); togglePlay(); }
   else if (e.key === "r" || e.key === "R") doRandom();
@@ -717,6 +903,7 @@ window.addEventListener("keydown", e => {
 // Drag to orbit the view.
 let drag = null;
 stage.addEventListener("pointerdown", e => {
+  if (seq.playing) stopSeq();
   drag = { x: e.clientX, y: e.clientY, yaw: params.yaw, pitch: params.pitch };
   stage.setPointerCapture(e.pointerId);
   stage.classList.add("dragging");
@@ -727,11 +914,230 @@ stage.addEventListener("pointermove", e => {
   params.pitch = snap(BY_ID.pitch, drag.pitch + (e.clientY - drag.y) * 0.4);
   dirty = true;
   for (const id of ["yaw", "pitch"]) { const it = inputs[id]; it.el.value = params[id]; it.out.value = fmt(it.s, params[id]); }
+  updateIdle();
 });
 const endDrag = () => { if (drag) { drag = null; stage.classList.remove("dragging"); persist(); } };
 stage.addEventListener("pointerup", endDrag);
 stage.addEventListener("pointercancel", endDrag);
 stage.addEventListener("dblclick", () => { params.yaw = 0; params.pitch = 0; params.persp = BY_ID.persp.def; dirty = true; syncUI(); persist(); });
+
+// ---------- sequence ----------
+const seqCardsEl = document.getElementById("seqCards");
+const seqPosEl = document.getElementById("seqPos"), seqPosOut = document.getElementById("seqPosOut");
+const seqStatusEl = document.getElementById("seqStatus"), seqPlayBtn = document.getElementById("seqPlay");
+
+function makeCard(p, name) {
+  return { id: seq.nextId++, name, params: cleanParams(p), hold: 3, blend: 3, ease: "smooth" };
+}
+function cleanCard(raw) {
+  if (!raw || typeof raw !== "object" || !raw.params) return null;
+  const c = makeCard(raw.params, typeof raw.name === "string" && raw.name.trim() ? raw.name.slice(0, 40) : "Look");
+  if (Number.isFinite(+raw.hold)) c.hold = clamp(+raw.hold, 0, 60);
+  if (Number.isFinite(+raw.blend)) c.blend = clamp(+raw.blend, 0, 60);
+  if (raw.ease in EASES) c.ease = raw.ease;
+  return c;
+}
+const cardsForSave = () => seq.cards.map(({ name, params: p, hold, blend, ease }) => ({ name, params: p, hold, blend, ease }));
+
+// Thumbnails are drawn from the card's settings rather than stored as images.
+function drawThumb(p, cv) {
+  const c = cv.getContext("2d"), s = cv.width;
+  const f = computeFrame(p, 1.5, s, 120);
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.globalCompositeOperation = "source-over";
+  c.globalAlpha = 1;
+  c.fillStyle = p.bg;
+  c.fillRect(0, 0, s, s);
+  c.globalCompositeOperation = p.additive ? "lighter" : "source-over";
+  c.lineWidth = 1;
+  for (const cp of f.look.copies) {
+    c.setTransform(Math.cos(cp.angle), Math.sin(cp.angle), -Math.sin(cp.angle), Math.cos(cp.angle), s / 2, s / 2);
+    f.rings.forEach(r => {
+      c.globalAlpha = clamp(Math.max(0.35, p.alphaL) * r.w * cp.w, 0, 1);
+      c.strokeStyle = rgbToHex(...r.rgb);
+      c.beginPath();
+      c.moveTo(r.pts[0], r.pts[1]);
+      for (let j = 2; j < r.pts.length; j += 2) c.lineTo(r.pts[j], r.pts[j + 1]);
+      c.stroke();
+    });
+  }
+}
+
+function renderSeq() {
+  seqCardsEl.textContent = "";
+  const n = seq.cards.length;
+  seq.cards.forEach((card, idx) => {
+    const li = document.createElement("li");
+    li.className = "card";
+    li.dataset.id = card.id;
+    const pre = `c${card.id}`;
+
+    const thumb = document.createElement("button");
+    thumb.type = "button"; thumb.className = "thumb";
+    thumb.setAttribute("aria-label", `Edit ${card.name}`);
+    thumb.title = "Edit this look";
+    const cv = document.createElement("canvas");
+    cv.width = 112; cv.height = 112;
+    thumb.append(cv);
+    thumb.addEventListener("click", () => {
+      applyParams(card.params);
+      seq.editing = card.id;
+      renderSeq();
+      seqStatusEl.textContent = `Editing ${card.name}. Press Update on its card to store your changes.`;
+    });
+
+    const body = document.createElement("div");
+    body.className = "card-body";
+    const top = document.createElement("div");
+    top.className = "card-top";
+    const name = document.createElement("input");
+    name.type = "text"; name.className = "card-name"; name.id = `${pre}-name`; name.value = card.name;
+    name.setAttribute("aria-label", "Look name"); name.maxLength = 40;
+    name.addEventListener("input", () => { card.name = name.value || "Look"; persist(); });
+    top.append(name);
+    const icon = (label, text, fn, disabled) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "icon"; b.textContent = text; b.title = label;
+      b.setAttribute("aria-label", `${label}: ${card.name}`);
+      b.disabled = !!disabled;
+      b.addEventListener("click", fn);
+      top.append(b);
+    };
+    icon("Move up", "↑", () => { [seq.cards[idx - 1], seq.cards[idx]] = [seq.cards[idx], seq.cards[idx - 1]]; renderSeq(); persist(); }, idx === 0);
+    icon("Move down", "↓", () => { [seq.cards[idx + 1], seq.cards[idx]] = [seq.cards[idx], seq.cards[idx + 1]]; renderSeq(); persist(); }, idx === n - 1);
+    icon("Update with current settings", "Update", () => {
+      card.params = cleanParams(params);
+      drawThumb(card.params, cv);
+      seqStatusEl.textContent = `${card.name} now uses the current settings.`;
+      persist();
+    });
+    icon("Remove", "✕", () => {
+      seq.cards.splice(idx, 1);
+      if (seq.editing === card.id) seq.editing = null;
+      if (seq.cards.length < 2 && seq.playing) stopSeq();
+      renderSeq(); persist();
+    });
+
+    const times = document.createElement("div");
+    times.className = "card-times";
+    const num = (label, key) => {
+      const l = document.createElement("label");
+      l.textContent = label;
+      const inp = document.createElement("input");
+      inp.type = "number"; inp.min = 0; inp.max = 60; inp.step = 0.5; inp.value = card[key]; inp.id = `${pre}-${key}`;
+      inp.addEventListener("input", () => {
+        const v = parseFloat(inp.value);
+        if (Number.isFinite(v)) { card[key] = clamp(v, 0, 60); seqUpdateRange(); persist(); }
+      });
+      l.append(inp);
+      times.append(l);
+    };
+    num("Hold s", "hold");
+    num(idx === n - 1 && n > 1 ? "Blend → 1st" : "Blend s", "blend");
+    const el = document.createElement("label");
+    el.textContent = "Easing";
+    const sel = document.createElement("select");
+    sel.id = `${pre}-ease`;
+    for (const [k, v] of Object.entries(EASES)) { const o = document.createElement("option"); o.value = k; o.textContent = v.label; sel.append(o); }
+    sel.value = card.ease;
+    sel.addEventListener("input", () => { card.ease = sel.value; persist(); });
+    el.append(sel);
+    times.append(el);
+
+    body.append(top, times);
+    li.append(thumb, body);
+    seqCardsEl.append(li);
+    drawThumb(card.params, cv);
+  });
+  seqUpdateRange();
+  seqTickUI(true);
+}
+
+function seqUpdateRange() {
+  const total = seqTotal();
+  seqPosEl.max = Math.max(0.01, total).toFixed(2);
+  const ok = seq.cards.length >= 2 && total > 0;
+  seqPlayBtn.disabled = !ok && !seq.playing;
+  seqPosEl.disabled = !ok;
+  const opt = document.querySelector('#recLen option[value="seq"]');
+  opt.disabled = !ok;
+  opt.textContent = ok ? `One sequence loop (${total.toFixed(1)} s)` : "One sequence loop (needs 2 looks)";
+  document.getElementById("seqSub").textContent = seq.cards.length ? `${seq.cards.length} looks · ${total.toFixed(1)} s` : "";
+}
+
+let lastSeqLabel = "";
+function seqTickUI(force) {
+  const total = seqTotal();
+  const pos = total > 0 ? ((seq.clock % total) + total) % total : 0;
+  seqPosEl.value = pos;
+  seqPosOut.value = `${pos.toFixed(1)} s`;
+  const at = seq.playing ? seqAt(seq.clock) : null;
+  const nowIdx = at ? (at.u > 0.5 ? at.j : at.i) : -1;
+  for (const li of seqCardsEl.children) {
+    const idx = [...seqCardsEl.children].indexOf(li);
+    li.classList.toggle("now", idx === nowIdx);
+    li.classList.toggle("editing", !seq.playing && +li.dataset.id === seq.editing);
+  }
+  if (!at) return;
+  const a = seq.cards[at.i], b = seq.cards[at.j];
+  const label = at.u > 0 ? `${a.name} → ${b.name}` : `Holding ${a.name}`;
+  if (force || label !== lastSeqLabel) {
+    lastSeqLabel = label;
+    seqStatusEl.textContent = label;
+    document.getElementById("hudGen").textContent = at.u > 0 ? `${GENS[a.params.gen]} → ${GENS[b.params.gen]}` : GENS[a.params.gen];
+    document.getElementById("hudSeed").textContent = `sequence · ${label}`;
+  }
+}
+
+function startSeq(fromStart) {
+  if (seq.cards.length < 2 || seqTotal() <= 0) return;
+  if (fromStart) { seq.clock = 0; seq.tau = 0; }
+  seq.playing = true;
+  seq.editing = null;
+  if (!playing) { playing = true; lastTime = performance.now(); }
+  seqPlayBtn.textContent = "Stop sequence";
+  syncUI();
+  seqTickUI(true);
+  renderSeqClasses();
+}
+function stopSeq() {
+  seq.playing = false;
+  seqPlayBtn.textContent = "Play sequence";
+  seqStatusEl.textContent = "Sequence stopped. The controls show the look you are editing.";
+  dirty = true;
+  syncUI();
+  renderSeqClasses();
+}
+function renderSeqClasses() { seqTickUI(true); seqUpdateRange(); }
+
+document.getElementById("seqAdd").addEventListener("click", () => {
+  const name = activePreset || `Look ${seq.cards.length + 1}`;
+  seq.cards.push(makeCard(params, name));
+  renderSeq(); persist();
+  seqStatusEl.textContent = `Added ${name}.`;
+});
+seqPlayBtn.addEventListener("click", () => { if (seq.playing) stopSeq(); else startSeq(false); });
+seqPosEl.addEventListener("input", () => {
+  if (!seq.playing) startSeq(false);
+  seq.clock = parseFloat(seqPosEl.value);
+  seq.tau = seq.clock;
+  dirty = true;
+  seqTickUI(true);
+});
+let clearArmed = 0;
+document.getElementById("seqClear").addEventListener("click", e => {
+  const b = e.currentTarget;
+  if (!clearArmed) {
+    b.textContent = "Press again to clear all looks";
+    clearArmed = setTimeout(() => { clearArmed = 0; b.textContent = "Clear all"; }, 3000);
+    return;
+  }
+  clearTimeout(clearArmed); clearArmed = 0; b.textContent = "Clear all";
+  if (seq.playing) stopSeq();
+  seq.cards = []; seq.editing = null;
+  renderSeq(); persist();
+  seqStatusEl.textContent = "Sequence cleared.";
+});
 
 // ---------- remembered settings (this browser only) ----------
 const STORE = "ring-loom-v1";
@@ -739,7 +1145,7 @@ let persistTimer = 0;
 function persist() {
   clearTimeout(persistTimer);
   persistTimer = setTimeout(() => {
-    try { localStorage.setItem(STORE, JSON.stringify({ params, seed, activePreset })); } catch { /* storage unavailable */ }
+    try { localStorage.setItem(STORE, JSON.stringify({ params, seed, activePreset, sequence: cardsForSave() })); } catch { /* storage unavailable */ }
   }, 300);
 }
 function cleanParams(raw) {
@@ -789,19 +1195,30 @@ document.getElementById("saveSvg").addEventListener("click", () => {
   const f = lastFrame;
   if (!f) return;
   const d = pts => { let s = "M" + pts[0].toFixed(1) + " " + pts[1].toFixed(1); for (let j = 2; j < pts.length; j += 2) s += "L" + pts[j].toFixed(1) + " " + pts[j + 1].toFixed(1); return s; };
-  const paths = f.rings.map(r => `<path stroke="${r.color}" d="${d(r.pts)}"/>`).join("");
+  const L = f.look;
+  const ds = f.rings.map(r => d(r.pts));
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(f.w)}" height="${Math.round(f.h)}" viewBox="0 0 ${f.w.toFixed(1)} ${f.h.toFixed(1)}">`;
-  if (f.additive) svg += `<style>path{mix-blend-mode:screen}</style>`;
-  svg += `<rect width="100%" height="100%" fill="${f.bg}"/>`;
-  svg += `<g transform="translate(${(f.w / 2).toFixed(1)} ${(f.h / 2).toFixed(1)})" fill="none" stroke-width="${f.width}" stroke-opacity="${f.alpha}" stroke-linejoin="round">`;
-  for (let m = 0; m < f.mirror; m++) svg += `<g transform="rotate(${(360 * m / f.mirror).toFixed(3)})">${paths}</g>`;
+  if (L.additive) svg += `<style>path{mix-blend-mode:screen}</style>`;
+  svg += `<rect width="100%" height="100%" fill="${rgbToHex(...L.bg)}"/>`;
+  svg += `<g transform="translate(${(f.w / 2).toFixed(1)} ${(f.h / 2).toFixed(1)})" fill="none" stroke-width="${L.width.toFixed(2)}" stroke-linejoin="round">`;
+  for (const cp of L.copies) {
+    svg += `<g transform="rotate(${(cp.angle / D2R).toFixed(3)})">`;
+    f.rings.forEach((r, i) => {
+      const op = clamp(L.alpha * r.w * cp.w, 0, 1).toFixed(3);
+      svg += `<path stroke="${f.hex[i]}" stroke-opacity="${op}" d="${ds[i]}"/>`;
+    });
+    svg += `</g>`;
+  }
   svg += `</g></svg>`;
   offer(`ring-loom-${stamp()}.svg`, svg);
 });
 let recording = false;
 document.getElementById("saveVid").addEventListener("click", () => {
   if (recording || !REC_MIME) return;
-  const secs = parseInt(document.getElementById("recLen").value, 10);
+  const choice = document.getElementById("recLen").value;
+  const loop = choice === "seq";
+  if (loop && (seq.cards.length < 2 || seqTotal() <= 0)) { statusEl.textContent = "Add at least two looks to record a sequence loop."; return; }
+  const secs = loop ? seqTotal() : parseInt(choice, 10);
   const btn = document.getElementById("saveVid");
   const stream = view.captureStream(60);
   let rec;
@@ -817,16 +1234,15 @@ document.getElementById("saveVid").addEventListener("click", () => {
     offer(`ring-loom-${stamp()}.${ext}`, new Blob(chunks, { type: REC_MIME }));
   };
   recording = true;
-  if (!playing) togglePlay();
+  if (loop) startSeq(true);  // start at the first look so the clip is exactly one seamless loop
+  else if (!playing) togglePlay();
   rec.start(250);
-  let left = secs;
-  btn.textContent = `Recording ${left}s`;
-  statusEl.textContent = "Recording the canvas…";
-  const iv = setInterval(() => {
-    left -= 1;
-    if (left <= 0) { clearInterval(iv); rec.stop(); }
-    else btn.textContent = `Recording ${left}s`;
-  }, 1000);
+  const endAt = performance.now() + secs * 1000;
+  const label = () => { btn.textContent = `Recording ${Math.max(0, Math.ceil((endAt - performance.now()) / 1000))}s`; };
+  label();
+  statusEl.textContent = loop ? "Recording one loop of the sequence…" : "Recording the canvas…";
+  const iv = setInterval(label, 250);
+  setTimeout(() => { clearInterval(iv); rec.stop(); }, secs * 1000);
 });
 
 // Outside claude.ai (e.g. the Vercel copy) there is no save prompt, so files go straight to the
@@ -859,8 +1275,8 @@ async function initDownloads() {
 // ---------- settings code ----------
 const codeEl = document.getElementById("code"), codeStatus = document.getElementById("codeStatus");
 document.getElementById("copyCode").addEventListener("click", () => {
-  codeEl.value = JSON.stringify({ ringLoom: 1, params });
-  const done = () => { codeStatus.textContent = "Copied. Paste it here later to get this exact look back."; };
+  codeEl.value = JSON.stringify({ ringLoom: 1, params, sequence: cardsForSave() });
+  const done = () => { codeStatus.textContent = "Copied, including the sequence. Paste it here later to get it all back."; };
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(codeEl.value).then(done, () => { codeEl.select(); codeStatus.textContent = "Selected. Press Ctrl+C to copy."; });
   } else { codeEl.select(); codeStatus.textContent = "Selected. Press Ctrl+C to copy."; }
@@ -870,7 +1286,14 @@ document.getElementById("loadCode").addEventListener("click", () => {
     const obj = JSON.parse(codeEl.value);
     if (!obj || !obj.params) throw new Error("no params");
     applyParams(cleanParams(obj.params));
-    codeStatus.textContent = "Loaded.";
+    let note = "Loaded.";
+    if (Array.isArray(obj.sequence)) {
+      const cards = obj.sequence.map(cleanCard).filter(Boolean);
+      seq.cards = cards; seq.editing = null;
+      renderSeq(); persist();
+      note = `Loaded, with ${cards.length} look${cards.length === 1 ? "" : "s"} in the sequence.`;
+    }
+    codeStatus.textContent = note;
   } catch { codeStatus.textContent = "That isn't a Ring Loom settings code. Copy one with the button above."; }
 });
 
@@ -884,13 +1307,21 @@ function start(data) {
     activePreset = typeof saved.activePreset === "string" && PRESETS[saved.activePreset] ? saved.activePreset : null;
     if (Number.isFinite(data && data.T)) T = data.T;
   }
+  const savedCards = saved && Array.isArray(saved.sequence) ? saved.sequence.map(cleanCard).filter(Boolean) : null;
+  // First visit: an example chain (opening look -> sphere -> star) so the panel shows what it does.
+  seq.cards = savedCards || [
+    makeCard(START_PARAMS, "Opening look"),
+    makeCard(Object.assign(defaults(), PRESETS["Rolling sphere"]), "Rolling sphere"),
+    makeCard(Object.assign(defaults(), PRESETS["Star weave"]), "Star weave"),
+  ];
   buildControls();
   buildPresets();
   syncUI();
   resize();
+  renderSeq();
   requestAnimationFrame(tick);
   initDownloads();
-  window.claude?.hot?.snapshot?.(() => ({ params, seed, activePreset, T }));
+  window.claude?.hot?.snapshot?.(() => ({ params, seed, activePreset, T, sequence: cardsForSave() }));
 }
 const hot = window.claude?.hot;
 if (hot && hot.ready) hot.ready(start); else start(hot?.data ?? {});

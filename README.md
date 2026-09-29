@@ -12,7 +12,14 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
   - *Two-ellipse blend* - interpolates a start ellipse into an end ellipse.
   - *Two Lanes (measured)* - 31 ellipses measured from the Two Lanes "Searching" cover.
 - **Randomize** (R) rolls a reproducible look from a seed; **Mutate** (M) nudges the current one.
-- **Save** a PNG frame, an SVG of the current lines, or a short video clip.
+- **Sequence:** add looks as cards, give each a hold time, a blend time and an easing, and play
+  them in a loop. Blends morph every ring point into the next look while both keep animating, so
+  generator, base-shape and ring-count changes read as motion. When ring or kaleidoscope counts
+  differ, the extra copies split out of their nearest neighbour instead of fading in; the only
+  setting that switches outright is Light blend, at the midpoint.
+- Controls that do nothing in the current combination are dimmed, with the reason on hover.
+- **Save** a PNG frame, an SVG of the current lines, or a video clip, including exactly one loop
+  of the sequence.
 - **Settings code** copies the exact look as JSON so it can be pasted back later.
 
 Drag the canvas to orbit the view; double-click resets it. Space plays and pauses.
@@ -28,7 +35,12 @@ source has no doctype and `build.js` exists.
 
 ```bash
 node build.js src/ring-loom.html
+node test/check-blend.js src/ring-loom.html
 ```
+
+`test/check-blend.js` runs the page script under a stub DOM and checks the morph guarantees: a
+blend starts exactly on look A and ends exactly on look B, split rings share brightness so nothing
+flashes, and no point jumps between neighbouring steps.
 
 ## Changing the opening look
 
