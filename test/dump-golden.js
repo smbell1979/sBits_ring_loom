@@ -37,7 +37,7 @@ const SIZE = 600, M = 64;
 const round = a => Array.from(a, v => +v.toFixed(5));
 const frameOut = f => ({
   rings: f.rings.map(r => ({ pts: round(r.pts), rgb: r.rgb.map(v => +v.toFixed(6)), w: +r.w.toFixed(9) })),
-  copies: f.look.copies.map(c => [+c.angle.toFixed(9), +c.w.toFixed(9)]),
+  copies: f.look.copies.map(c => [+c.angle.toFixed(9), +c.w.toFixed(9), +c.sx.toFixed(9)]),
 });
 
 // Looks: every preset, the opening look, and seeded random looks (all generators and base shapes).
@@ -67,6 +67,10 @@ for (const [gen, extra] of [["slinky", { rings: 17 }], ["sphere", { rings: 13, a
 // Loop colours, a gradient palette, Custom and Spectrum, with and without Cycle.
 for (const [pal, cycle] of [["viridis", 0], ["custom", 45], ["spectrum", 0], ["spectrum", 70], ["infrared", -30]]) {
   looks.push([`loop colours ${pal} ${cycle}`, Object.assign(t.defaults(), { gen: "slinky", closed: true, rings: 15, loopColors: true, palette: pal, cycle })]);
+}
+// Kaleidoscope: copies over a half circle, mirrored twins, and both.
+for (const [mirror, copySpan, reflect] of [[2, "half", false], [5, "full", true], [3, "half", true], [1, "full", true]]) {
+  looks.push([`kaleidoscope ${mirror} ${copySpan}${reflect ? " mirrored" : ""}`, Object.assign(t.defaults(), { gen: "cover", rings: 12, mirror, copySpan, reflect })]);
 }
 // Typed values between the sliders' steps (the page keeps them exactly).
 looks.push(["typed off-step values", Object.assign(t.defaults(), { gen: "again", roll: 12.37, yaw: -7.33, pitch: 3.14159, twist: 45.125, squash: 0.9137, zoom: 1.0625 })]);
@@ -106,6 +110,8 @@ const blendPairs = [
   ["matching off", flat({ gen: "blend", rings: 30, mirror: 1 }), flat({ gen: "again", rings: 20, base: "star", sides: 5, rotate: 30 }), { match: false }],
   // Between a faded look and an unfaded one with a different ring count: shares and fade mix.
   ["fade blend", flat({ gen: "cover", rings: 19, fade: 0.9, fadeCurve: 2, fadeFrom: "ends" }), flat({ gen: "again", rings: 30 }), { ease: "smooth" }],
+  // Mirror turning on during a blend: the twins turn over (sx 1 -> -1).
+  ["mirror on", flat({ gen: "cover", rings: 19, mirror: 3 }), flat({ gen: "blend", rings: 25, mirror: 3, reflect: true, copySpan: "half" }), {}],
   ["stagger + views", flat({ gen: "slinky", rings: 20, yaw: 30, pitch: 50, zoom: 1.2, persp: 0.8 }),
     flat({ gen: "harmono", rings: 12, yaw: -120, pitch: -10, zoom: 0.8 }), { stagger: 0.6, ease: "smooth", turns: -1 }],
   ["swirl", flat({ gen: "again", rings: 24, base: "star", sides: 5 }), flat({ gen: "cover", rings: 19 }), { swirl: 270, ease: "smooth" }],

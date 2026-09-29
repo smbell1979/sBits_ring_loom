@@ -52,6 +52,13 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
   exactly one cycle, spaced evenly by the ring count, so the last ring never lands on the first
   (Turns, Sweep, Turn / ring and Phase / ring space rings first-to-last inclusive, so at exactly
   one cycle the last ring doubled the first). Add rings and the spacing adjusts.
+- **Kaleidoscope** copies turn the picture evenly over **Copies over**: a full circle, or a half
+  circle for looks that look the same turned 180 degrees (flat, centred rings such as Two Lanes),
+  where full-circle copies land on each other (at 2, and half of them at 4 and 6). **Mirror
+  copies** adds a left-right reflected twin to each copy, a true kaleidoscope; in a blend that
+  turns it on or off the twins turn over like a card.
+- **Squareness** (circle base) reads 0 for a perfect circle, up to 1 squarer, down to -1 pinched
+  toward a diamond and star. Files still store the underlying exponent (2 = circle).
 - **Loop colours:** the colours go round the rings and join up, through the palette and back
   (Spectrum: once round the hue wheel), so a closed circle of rings has no seam where the last
   ring's colour meets the first's. Cycle moves them round the loop; Spread isn't used.

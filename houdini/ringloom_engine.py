@@ -130,6 +130,8 @@ SCHEMA = [
     ("glow", "range", 4, 0, 40),
     ("trails", "range", 0, 0, 0.97),
     ("mirror", "range", 1, 1, 12),
+    ("copySpan", "select", "full", ["full", "half"]),
+    ("reflect", "toggle", False),
     ("additive", "toggle", True),
     ("bg", "color", "#000000"),
 ]
@@ -446,6 +448,19 @@ def ring_world(p, k, N, M, time, mats):
     return np.stack([x, y, z], axis=1)
 
 
+def kaleido_copies(p):
+    """Page kaleidoCopies: (angle, weight, sx) per copy, over a full or half circle, each followed
+    by its left-right reflected twin (sx -1) with Mirror copies."""
+    m = jsround(p["mirror"])
+    span = math.pi if p["copySpan"] == "half" else TAU
+    out = []
+    for i in range(m):
+        out.append((i / m * span, 1.0, 1.0))
+        if p["reflect"]:
+            out.append((i / m * span, 1.0, -1.0))
+    return out
+
+
 def fade_weights(p, N):
     """Ring fade (page fadeWeight): each ring's brightness, 1 - fade * x ** curve, x running 0 -> 1
     toward the faded end."""
@@ -471,7 +486,7 @@ def look3d(p, time, M=None):
         "view": {"pitch": p["pitch"], "yaw": p["yaw"], "roll": p["roll"], "rot": p["rotate"] + p["spin"] * time,
                  "rotate": p["rotate"], "spin": p["spin"], "time": time,
                  "D": 2.4 + (1 - p["persp"]) * 40, "zoom": p["zoom"]},
-        "copies": [(i / m * TAU, 1.0) for i in range(m)],
+        "copies": kaleido_copies(p),
         "look": {"width": p["width"], "alpha": p["alphaL"], "glow": p["glow"], "trails": p["trails"],
                  "additive": bool(p["additive"]), "bg": [float(v) for v in hex_to_rgb(p["bg"])]},
     }
@@ -586,7 +601,8 @@ def blend3d(A, B, u, turns=0, stagger=0.0, swirl=0.0, ease="linear", tau0=None, 
     w = np.array([lerp(A["w"][ia[i]] * wa[i], B["w"][ib[i]] * wb[i], te[i]) for i in range(n)])
     cn, cia, cib, cwa, cwb = pair_up(len(A["copies"]), len(B["copies"]))
     copies = [(lerp(A["copies"][cia[i]][0], B["copies"][cib[i]][0], t),
-               lerp(A["copies"][cia[i]][1] * cwa[i], B["copies"][cib[i]][1] * cwb[i], t)) for i in range(cn)]
+               lerp(A["copies"][cia[i]][1] * cwa[i], B["copies"][cib[i]][1] * cwb[i], t),
+               lerp(A["copies"][cia[i]][2], B["copies"][cib[i]][2], t)) for i in range(cn)]
     va, vb = A["view"], B["view"]
     # Angles per ring (arrays), so staggered rings turn into place one after another.
     view = {"pitch": va["pitch"] + (vb["pitch"] - va["pitch"]) * te,
@@ -783,15 +799,18 @@ def world_rings(frame):
     """Final world-space rings for Houdini: view applied, kaleidoscope copies expanded.
 
     Returns a list of (points (M+1, 3), rgb 0-1, alpha). Copies turn about the camera axis; the
-    page rotates the canvas (y down), which is a turn of -angle in y-up world space.
+    page rotates the canvas (y down), which is a turn of -angle in y-up world space. A mirrored
+    twin (sx -1, or between while turning over) first scales x by sx: screen and world x point the
+    same way, so the flip carries over unchanged.
     """
     P = apply_view(frame)
     out = []
     alpha = frame["look"]["alpha"]
-    for ang, cw in frame["copies"]:
+    for ang, cw, sx in frame["copies"]:
         c, s = math.cos(-ang), math.sin(-ang)
         R = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
-        Q = P @ R.T if ang else P
+        Q = P * np.array([sx, 1.0, 1.0]) if sx != 1 else P
+        Q = Q @ R.T if ang else Q
         for k in range(len(frame["w"])):
             out.append((Q[k], frame["rgb"][k] / 255.0, clamp(alpha * frame["w"][k] * cw, 0, 1)))
     return out

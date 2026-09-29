@@ -61,7 +61,8 @@ def main(path):
         if worst > PX_TOL:
             fails.append(f"{label}: points off by up to {worst:.4f} px")
         got = frame["copies"]
-        if len(got) != len(ref["copies"]) or any(abs(a - b[0]) > W_TOL or abs(w - b[1]) > W_TOL for (a, w), b in zip(got, ref["copies"])):
+        if len(got) != len(ref["copies"]) or any(abs(a - b[0]) > W_TOL or abs(w - b[1]) > W_TOL or abs(sx - b[2]) > W_TOL
+                                                  for (a, w, sx), b in zip(got, ref["copies"])):
             fails.append(f"{label}: kaleidoscope copies {got} vs page {ref['copies']}")
         return worst
 

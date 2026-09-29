@@ -387,6 +387,14 @@ setTimeout(() => {
     check("out-of-range values are clamped to the slider's range", rd("roll", "400") === 180 && rd("roll", "-1e9") === -180);
     check("counts round to whole numbers", rd("rings", "19.6") === 20 && rd("mirror", "2.4") === 2 && rd("res", "333") === 333);
     check("a precise value is shown in full, not rounded to the step", t.fmt(S.roll, 12.37) === "12.37" && t.fmt(S.roll, 12.5) === "12.5" && t.fmt(S.rings, 20) === "20" && t.fmt(S.zoom, 1) === t.fmt(S.zoom, 1.0));
+    // Squareness shows a scale where 0 is the circle; the stored value stays the exponent.
+    const sq = S.superexp, near = (a, b) => Math.abs(a - b) < 1e-12;
+    check("squareness scale: 0 is the circle (exponent 2), -1 and +1 are the old ends 0.4 and 5",
+      near(sq.ui.from(0), 2) && near(sq.ui.to(2), 0) && near(sq.ui.from(1), 5) && near(sq.ui.from(-1), 0.4)
+      && [0.4, 0.8, 1.3, 2, 2.7, 4.2, 5].every(n => near(sq.ui.from(sq.ui.to(n)), n)));
+    check("squareness field: shows 0.00 for the circle; typing works on the scale and is clamped to it",
+      t.fmt(sq, 2) === "0.00" && t.fmt(sq, 5) === "1.00" && near(rd("superexp", "0"), 2) && near(rd("superexp", "1"), 5) && near(rd("superexp", "3"), 5) && near(rd("superexp", "-1"), 0.4),
+      `circle shows ${t.fmt(sq, 2)}, exponent 4.2 shows ${t.fmt(sq, 4.2)}, typed 0.5 -> exponent ${rd("superexp", "0.5").toFixed(4)}`);
     check("a precise value survives saving and loading", t.cleanParams({ roll: 12.37, twist: 45.125 }).roll === 12.37 && t.cleanParams({ twist: 45.125 }).twist === 45.125);
   }
 

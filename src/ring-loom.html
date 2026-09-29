@@ -417,7 +417,15 @@ const SCHEMA = [
   { id: "base", group: "shape", label: "Base shape", type: "select", options: BASES, def: "circle", idle: IDLE_HARMONO },
   { id: "sides", group: "shape", label: "Sides / points", type: "range", min: 3, max: 16, step: 1, def: 5, r: [3, 9], when: p => HAS_SIDES.has(p.base), idle: IDLE_HARMONO },
   { id: "depth", group: "shape", label: "Point depth", type: "range", min: 0, max: 0.9, step: 0.01, def: 0.45, r: [0.2, 0.7], when: p => p.base === "star" || p.base === "flower", idle: IDLE_HARMONO },
-  { id: "superexp", group: "shape", label: "Squareness", type: "range", min: 0.4, max: 5, step: 0.01, def: 2, r: [0.8, 4.2], rp: 0.35, when: p => p.base === "circle", idle: IDLE_HARMONO },
+  // Stored as the superellipse exponent (2 = a perfect circle, lower pinches toward a diamond and
+  // star, higher squares off), which files, seeds and Houdini keep using. The slider shows it on a
+  // squareness scale instead (ui), 0 = the circle, -1 = the old minimum 0.4, +1 = the old maximum 5,
+  // log-scaled each side so the circle sits in the middle rather than at 2 of 0.4-5.
+  { id: "superexp", group: "shape", label: "Squareness", type: "range", min: 0.4, max: 5, step: 0.01, def: 2, r: [0.8, 4.2], rp: 0.35, when: p => p.base === "circle", idle: IDLE_HARMONO,
+    ui: { min: -1, max: 1, step: 0.01,
+      to: n => n >= 2 ? Math.log(n / 2) / Math.log(2.5) : Math.log(n / 2) / Math.log(5),
+      from: d => d >= 0 ? 2 * Math.pow(2.5, d) : 2 * Math.pow(5, d) },
+    tip: "0 is a perfect circle. Right: squarer, toward a rounded square. Left: pinched, toward a diamond and a star." },
   { id: "rings", group: "shape", label: "Rings", type: "range", min: 2, max: 140, step: 1, def: 31, r: [18, 90] },
   { id: "res", group: "shape", label: "Smoothness", type: "range", min: 48, max: 720, step: 8, def: 360, r: null },
   { id: "wobble", group: "shape", label: "Wobble", type: "range", min: 0, max: 0.45, step: 0.005, def: 0, r: [0.02, 0.22], rp: 0.5 },
@@ -501,6 +509,16 @@ const SCHEMA = [
     idle: () => FILTER_OK ? null : "This browser can't blur the canvas, so glow isn't drawn." },
   { id: "trails", group: "look", label: "Trails", type: "range", min: 0, max: 0.97, step: 0.01, def: 0, r: [0.3, 0.9], rp: 0.4 },
   { id: "mirror", group: "look", label: "Kaleidoscope", type: "range", min: 1, max: 12, step: 1, def: 1, r: [2, 8], rp: 0.3 },
+  // Copies over: the copies are spread over a full or a half circle. A look that looks the same
+  // turned 180 degrees (flat, centred rings: Two Lanes, the ellipse blend, many seeds) repeats
+  // itself at 2 copies over a full circle -- the second lands on the first -- and at 4 and 6 half
+  // the copies do; over a half circle every copy is new. Mirror copies adds a left-right reflected
+  // twin to each copy, a true kaleidoscope. Neither is randomized, so seeds are unchanged.
+  { id: "copySpan", group: "look", label: "Copies over", type: "select", def: "full", r: null,
+    options: { full: "Full circle (360°)", half: "Half circle (180°)" },
+    idle: p => Math.round(p.mirror) <= 1 ? "Only one copy, so there's nothing to spread." : null },
+  { id: "reflect", group: "look", label: "Mirror copies", type: "toggle", def: false,
+    tip: "Each kaleidoscope copy gets a reflected twin, flipped left to right, like the mirrors in a real kaleidoscope. With one copy: left-right symmetry." },
   { id: "additive", group: "look", label: "Light blend", type: "toggle", def: true },
   { id: "bg", group: "look", label: "Background", type: "color", def: "#000000" },
 ];
@@ -877,7 +895,20 @@ function resize() {
 new ResizeObserver(resize).observe(stage);
 
 const LINEAR_GENS = new Set(["cover", "again", "blend"]);
-const evenCopies = m => Array.from({ length: m }, (_, i) => ({ angle: (i / m) * TAU, w: 1 }));
+// Kaleidoscope copies: the picture turned evenly over a full or half circle, and with Mirror copies
+// each followed by its twin reflected left to right (sx -1: x is flipped before turning). sx is a
+// number, not a flag, so a blend that turns Mirror on or off turns the twins over like a card
+// (sx through 0) instead of popping them in. Twins sit right after their copy, so a blend into a
+// mirrored look pairs each copy with itself and its twin.
+function kaleidoCopies(p) {
+  const m = Math.round(p.mirror), span = p.copySpan === "half" ? Math.PI : TAU, out = [];
+  for (let i = 0; i < m; i++) {
+    const angle = (i / m) * span;
+    out.push({ angle, w: 1, sx: 1 });
+    if (p.reflect) out.push({ angle, w: 1, sx: -1 });
+  }
+  return out;
+}
 
 // A frame is built in two stages, so sequence blends can work in 3D:
 //   look3d   one look at one moment: every ring's points before the view (x, y, z), with colour,
@@ -915,7 +946,7 @@ function look3d(p, time, M) {
     view: { pitch: p.pitch, yaw: p.yaw, roll: p.roll, rotate: p.rotate, spin: p.spin },
     cam: { D: 2.4 + (1 - p.persp) * 40, zoom: p.zoom },
     look: { width: p.width, alpha: p.alphaL, glow: p.glow, trails: p.trails, additive: p.additive,
-            bg: hexToRgb(p.bg), copies: evenCopies(Math.round(p.mirror)) },
+            bg: hexToRgb(p.bg), copies: kaleidoCopies(p) },
   };
 }
 function project(f3, size) {
@@ -1067,7 +1098,7 @@ function blendFrames(fa, fb, t, ringT, turns, tau0, matches) {
   const copies = [];
   for (let i = 0; i < C.n; i++) {
     const a = la.copies[C.ia[i]], b = lb.copies[C.ib[i]];
-    copies.push({ angle: lerp(a.angle, b.angle, t), w: lerp(a.w * C.wa[i], b.w * C.wb[i], t) });
+    copies.push({ angle: lerp(a.angle, b.angle, t), w: lerp(a.w * C.wa[i], b.w * C.wb[i], t), sx: lerp(a.sx, b.sx, t) });
   }
   return {
     rings, time,
@@ -1147,18 +1178,27 @@ function morphFrame(pa, pb, time, size, M, u, how = {}, tau0 = time) {
 
 function renderFrame(f) {
   const W = view.width, H = view.height, L = f.look;
-  const paths = f.rings.map(r => {
-    const path = new Path2D();
-    path.moveTo(r.pts[0], r.pts[1]);
-    for (let j = 2; j < r.pts.length; j += 2) path.lineTo(r.pts[j], r.pts[j + 1]);
-    return path;
-  });
+  // Ring outlines with x scaled by sx (1, or -1 for a mirrored twin, in between while one turns
+  // over). The points are scaled rather than the canvas, so line width stays even mid-turn.
+  const pathSets = new Map();
+  const pathsFor = sx => {
+    if (!pathSets.has(sx)) {
+      pathSets.set(sx, f.rings.map(r => {
+        const path = new Path2D();
+        path.moveTo(r.pts[0] * sx, r.pts[1]);
+        for (let j = 2; j < r.pts.length; j += 2) path.lineTo(r.pts[j] * sx, r.pts[j + 1]);
+        return path;
+      }));
+    }
+    return pathSets.get(sx);
+  };
   const hex = f.rings.map(r => rgbToHex(...r.rgb));
   lctx.setTransform(1, 0, 0, 1, 0, 0);
   lctx.clearRect(0, 0, W, H);
   lctx.globalCompositeOperation = L.additive ? "lighter" : "source-over";
   lctx.lineJoin = "round";
   for (const cp of L.copies) {
+    const paths = pathsFor(cp.sx ?? 1);
     lctx.setTransform(dpr, 0, 0, dpr, W / 2, H / 2);
     lctx.rotate(cp.angle);
     lctx.lineWidth = L.width;
@@ -1242,24 +1282,37 @@ const inputs = {};
 const decimals = s => (String(s.step).split(".")[1] || "").length;
 // The step's decimals, unless the value is finer than the step (typed in): then it shows in full,
 // so a precise value is never displayed rounded to something it isn't.
+// A slider with a display scale (s.ui: its own min/max/step, and to/from the stored value) shows
+// that scale rounded to its step's decimals: stored values from files or Randomize rarely land on
+// its steps, and a long string of digits there would say nothing more.
 function fmt(s, v) {
   if (s.type !== "range") return "";
+  if (s.ui) { const d = s.ui.to(Number(v)); return (Math.abs(d) < 5e-4 ? 0 : d).toFixed(Math.max(2, Math.min(3, decimals(s.ui)))); }
   const n = Number(v), plain = n.toFixed(Math.min(3, decimals(s)));
   return Math.abs(+plain - n) < 1e-9 ? plain : String(+n.toFixed(6));
 }
+const uiOf = s => s.ui || s;  // the scale the slider and field work in
 // Sliders that are counts: the drawing rounds them, so a typed value is rounded too rather than
 // showing a fraction that has no effect.
 const COUNTS = new Set(["sides", "rings", "res", "lobes", "mirror", "fx", "fy"]);
 // A typed value for slider s: null if the text isn't a number, else the number clamped to the
 // slider's range (files are clamped the same way on load, so a value outside it wouldn't survive).
 // Accepts a leading +, a typographic minus and a decimal comma.
-function readTyped(s, text) {
+// With a display scale, the text is on that scale (clamped to its range) and the stored value
+// comes back through ui.from; readTypedDisplay gives the number on the scale, for nudging.
+function readTypedDisplay(s, text) {
   const t = String(text).trim().replace(/[−–]/g, "-").replace(",", ".");
   if (!/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(t)) return null;
   let v = +t;
   if (!Number.isFinite(v)) return null;
   if (COUNTS.has(s.id)) v = Math.round(v);
-  return clamp(v, s.min, s.max);
+  const u = uiOf(s);
+  return clamp(v, u.min, u.max);
+}
+function readTyped(s, text) {
+  const d = readTypedDisplay(s, text);
+  if (d === null) return null;
+  return s.ui ? clamp(s.ui.from(d), s.min, s.max) : d;
 }
 
 function buildControls() {
@@ -1276,7 +1329,8 @@ function buildControls() {
     let el, out = null;
     if (s.type === "range") {
       el = document.createElement("input");
-      el.type = "range"; el.min = s.min; el.max = s.max; el.step = s.step;
+      const u = uiOf(s);
+      el.type = "range"; el.min = u.min; el.max = u.max; el.step = u.step;
       out = numberField(s);
     } else if (s.type === "select") {
       el = document.createElement("select");
@@ -1288,7 +1342,7 @@ function buildControls() {
     }
     el.id = id;
     el.addEventListener("input", () => {
-      const v = s.type === "range" ? parseFloat(el.value) : s.type === "toggle" ? el.checked : el.value;
+      const v = s.type === "range" ? (s.ui ? s.ui.from(parseFloat(el.value)) : parseFloat(el.value)) : s.type === "toggle" ? el.checked : el.value;
       setParam(s.id, v, true);
     });
     row.append(el);
@@ -1347,15 +1401,17 @@ function numberField(s) {
   const f = document.createElement("input");
   f.type = "text"; f.className = "num"; f.inputMode = "decimal"; f.spellcheck = false;
   f.setAttribute("aria-label", `${s.label} value`);
-  f.title = `${s.min} to ${s.max}. Enter to apply, Esc to cancel, ↑↓ to nudge (Shift ×10).`;
+  const u = uiOf(s);
+  f.title = `${u.min} to ${u.max}. Enter to apply, Esc to cancel, ↑↓ to nudge (Shift ×10).`;
   const show = () => { f.value = fmt(s, params[s.id]); };
   const flash = () => { f.classList.remove("bad"); void f.offsetWidth; f.classList.add("bad"); };
   const commit = () => {
+    const d = readTypedDisplay(s, f.value);
+    if (d === null) { flash(); show(); return; }  // not a number: back to the current value
     const v = readTyped(s, f.value);
-    if (v === null) { flash(); show(); return; }  // not a number: back to the current value
     const typed = +String(f.value).trim().replace(/[−–]/g, "-").replace(",", ".");
-    if (v !== typed) flash();  // clamped or rounded: the field now shows what was used
-    if (v !== params[s.id]) { inputs[s.id].el.value = v; setParam(s.id, v, true); }
+    if (Math.abs(d - typed) > 1e-12) flash();  // clamped or rounded: the field now shows what was used
+    if (v !== params[s.id]) { inputs[s.id].el.value = d; setParam(s.id, v, true); }
     show();
   };
   f.addEventListener("change", commit);
@@ -1365,8 +1421,8 @@ function numberField(s) {
     else if (e.key === "Escape") { show(); f.blur(); }
     else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
       e.preventDefault();
-      const cur = readTyped(s, f.value) ?? params[s.id];
-      f.value = String(+(cur + (e.key === "ArrowUp" ? 1 : -1) * s.step * (e.shiftKey ? 10 : 1)).toFixed(6));
+      const cur = readTypedDisplay(s, f.value) ?? (s.ui ? s.ui.to(params[s.id]) : params[s.id]);
+      f.value = String(+(cur + (e.key === "ArrowUp" ? 1 : -1) * u.step * (e.shiftKey ? 10 : 1)).toFixed(6));
       commit();
     }
   });
@@ -1375,7 +1431,7 @@ function numberField(s) {
 function syncUI() {
   for (const { s, el, out, row } of Object.values(inputs)) {
     const v = params[s.id];
-    if (s.type === "toggle") el.checked = !!v; else el.value = v;
+    if (s.type === "toggle") el.checked = !!v; else el.value = s.ui ? s.ui.to(v) : v;
     if (out && out !== document.activeElement) out.value = fmt(s, v);
     row.hidden = (s.gen && s.gen !== params.gen) || (s.when && !s.when(params));
   }
@@ -1524,12 +1580,13 @@ function drawThumb(p, cv) {
   c.lineWidth = 1;
   for (const cp of f.look.copies) {
     c.setTransform(Math.cos(cp.angle), Math.sin(cp.angle), -Math.sin(cp.angle), Math.cos(cp.angle), s / 2, s / 2);
+    const sx = cp.sx ?? 1;  // mirrored twins: x flipped (renderFrame)
     f.rings.forEach(r => {
       c.globalAlpha = clamp(Math.max(0.35, p.alphaL) * r.w * cp.w, 0, 1);
       c.strokeStyle = rgbToHex(...r.rgb);
       c.beginPath();
-      c.moveTo(r.pts[0], r.pts[1]);
-      for (let j = 2; j < r.pts.length; j += 2) c.lineTo(r.pts[j], r.pts[j + 1]);
+      c.moveTo(r.pts[0] * sx, r.pts[1]);
+      for (let j = 2; j < r.pts.length; j += 2) c.lineTo(r.pts[j] * sx, r.pts[j + 1]);
       c.stroke();
     });
   }
@@ -2012,14 +2069,17 @@ document.getElementById("savePng").addEventListener("click", () => {
 document.getElementById("saveSvg").addEventListener("click", () => {
   const f = lastFrame;
   if (!f) return;
-  const d = pts => { let s = "M" + pts[0].toFixed(1) + " " + pts[1].toFixed(1); for (let j = 2; j < pts.length; j += 2) s += "L" + pts[j].toFixed(1) + " " + pts[j + 1].toFixed(1); return s; };
+  // x scaled by sx for mirrored twins, in the path data so stroke width stays even (renderFrame).
+  const d = (pts, sx) => { let s = "M" + (pts[0] * sx).toFixed(1) + " " + pts[1].toFixed(1); for (let j = 2; j < pts.length; j += 2) s += "L" + (pts[j] * sx).toFixed(1) + " " + pts[j + 1].toFixed(1); return s; };
   const L = f.look;
-  const ds = f.rings.map(r => d(r.pts));
+  const dsBySx = new Map();
+  const dsFor = sx => { if (!dsBySx.has(sx)) dsBySx.set(sx, f.rings.map(r => d(r.pts, sx))); return dsBySx.get(sx); };
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(f.w)}" height="${Math.round(f.h)}" viewBox="0 0 ${f.w.toFixed(1)} ${f.h.toFixed(1)}">`;
   if (L.additive) svg += `<style>path{mix-blend-mode:screen}</style>`;
   svg += `<rect width="100%" height="100%" fill="${rgbToHex(...L.bg)}"/>`;
   svg += `<g transform="translate(${(f.w / 2).toFixed(1)} ${(f.h / 2).toFixed(1)})" fill="none" stroke-width="${L.width.toFixed(2)}" stroke-linejoin="round">`;
   for (const cp of L.copies) {
+    const ds = dsFor(cp.sx ?? 1);
     svg += `<g transform="rotate(${(cp.angle / D2R).toFixed(3)})">`;
     f.rings.forEach((r, i) => {
       const op = clamp(L.alpha * r.w * cp.w, 0, 1).toFixed(3);
