@@ -52,6 +52,10 @@ for (const base of ["polygon", "star", "flower", "heart", "infinity"]) {
 // Roll, alone and combined with yaw, pitch, perspective and kaleidoscope copies.
 looks.push(["roll only", Object.assign(t.defaults(), { gen: "cover", roll: 35 })]);
 looks.push(["roll+yaw+pitch", Object.assign(t.defaults(), { gen: "sphere", roll: -120, yaw: 40, pitch: -25, persp: 0.7 })]);
+// Every palette, including the ones Randomize never picks (it only uses the original few).
+for (const pal of ["infrared", "aurora", "vapor", "cyber", "fireice", "gold", "deepsea", "candy", "magma", "viridis", "rose", "sunset"]) {
+  looks.push([`palette ${pal}`, Object.assign(t.defaults(), { gen: "again", rings: 16, palette: pal, spread: 1.7, cycle: 40 })]);
+}
 // Typed values between the sliders' steps (the page keeps them exactly).
 looks.push(["typed off-step values", Object.assign(t.defaults(), { gen: "again", roll: 12.37, yaw: -7.33, pitch: 3.14159, twist: 45.125, squash: 0.9137, zoom: 1.0625 })]);
 looks.push(["roll+mirror", Object.assign(t.defaults(), { gen: "slinky", roll: 75, pitch: 30, mirror: 5, rings: 20 })]);

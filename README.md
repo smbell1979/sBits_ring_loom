@@ -196,4 +196,7 @@ Because returning visitors keep their own state, open the page in a private wind
 default yourself.
 
 Seeds reproduce a look only while `randomize()` and the order of `SCHEMA` stay the same: adding or
-reordering randomized parameters changes what every seed produces.
+reordering randomized parameters changes what every seed produces. Randomize picks from every
+palette, so adding a palette changes the colour a seed number gives (only its colour: the palette
+is one random draw). Saved looks, sequences and the default store the palette by name, so they
+never change.

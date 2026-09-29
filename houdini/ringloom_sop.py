@@ -53,6 +53,18 @@ PALETTES = {
     "acid": ["#c4ff3d", "#35ffd2", "#3d7bff"],
     "ember": ["#ff2a00", "#ffae00", "#fff0c2"],
     "ultra": ["#6b00ff", "#ff00d4", "#00e0ff"],
+    "infrared": ["#6a00c8", "#ff0040", "#ff9100", "#ffff66", "#ffffff"],
+    "aurora": ["#39ff8f", "#1de9b6", "#2979ff", "#b388ff"],
+    "vapor": ["#ff71ce", "#b967ff", "#01cdfe", "#05ffa1"],
+    "cyber": ["#fcee0a", "#ff003c", "#00f0ff"],
+    "fireice": ["#ff3d00", "#ffab91", "#ffffff", "#80d8ff", "#00b0ff"],
+    "gold": ["#b87800", "#ffc400", "#fff3b0", "#ffffff"],
+    "deepsea": ["#2449ff", "#00b4d8", "#90e0ef", "#e0fbff"],
+    "candy": ["#ff9cee", "#b28dff", "#85e3ff", "#aff8db"],
+    "magma": ["#7a1fa2", "#d13d7a", "#fc8961", "#fcfdbf"],
+    "viridis": ["#6a4fb0", "#3f78b5", "#2a9d9a", "#35b779", "#90d743", "#fde725"],
+    "rose": ["#c9707d", "#f0a8a0", "#ffd6c9", "#fff4ef"],
+    "sunset": ["#7b2ff7", "#f107a3", "#ff6a00", "#ffd000"],
     "custom": None,
 }
 GENS = ["cover", "sphere", "again", "blend", "harmono", "slinky"]

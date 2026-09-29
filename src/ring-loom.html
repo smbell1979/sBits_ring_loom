@@ -382,9 +382,23 @@ const PALETTES = {
   acid: { label: "Acid", stops: ["#c4ff3d", "#35ffd2", "#3d7bff"] },
   ember: { label: "Ember", stops: ["#ff2a00", "#ffae00", "#fff0c2"] },
   ultra: { label: "Ultraviolet", stops: ["#6b00ff", "#ff00d4", "#00e0ff"] },
+  // Added later. Lines are light on black, so stops stay bright enough to show; a dark stop just
+  // disappears.
+  infrared: { label: "Infrared", stops: ["#6a00c8", "#ff0040", "#ff9100", "#ffff66", "#ffffff"] },
+  aurora: { label: "Aurora", stops: ["#39ff8f", "#1de9b6", "#2979ff", "#b388ff"] },
+  vapor: { label: "Vaporwave", stops: ["#ff71ce", "#b967ff", "#01cdfe", "#05ffa1"] },
+  cyber: { label: "Cyberpunk", stops: ["#fcee0a", "#ff003c", "#00f0ff"] },
+  fireice: { label: "Fire & ice", stops: ["#ff3d00", "#ffab91", "#ffffff", "#80d8ff", "#00b0ff"] },
+  gold: { label: "Gold leaf", stops: ["#b87800", "#ffc400", "#fff3b0", "#ffffff"] },
+  deepsea: { label: "Deep sea", stops: ["#2449ff", "#00b4d8", "#90e0ef", "#e0fbff"] },
+  candy: { label: "Candy", stops: ["#ff9cee", "#b28dff", "#85e3ff", "#aff8db"] },
+  magma: { label: "Magma", stops: ["#7a1fa2", "#d13d7a", "#fc8961", "#fcfdbf"] },
+  viridis: { label: "Viridis", stops: ["#6a4fb0", "#3f78b5", "#2a9d9a", "#35b779", "#90d743", "#fde725"] },
+  rose: { label: "Rose gold", stops: ["#c9707d", "#f0a8a0", "#ffd6c9", "#fff4ef"] },
+  sunset: { label: "Sunset", stops: ["#7b2ff7", "#f107a3", "#ff6a00", "#ffd000"] },
   custom: { label: "Custom A → B", stops: null },
 };
-const paletteLabels = Object.fromEntries(Object.entries(PALETTES).map(([k, v]) => [k, v.label]));
+const paletteLabels =Object.fromEntries(Object.entries(PALETTES).map(([k, v]) => [k, v.label]));
 
 // idle(p): why a control has no effect right now (shown dimmed with this as a tooltip), or null.
 const FLAT_GENS = new Set(["cover", "again", "blend", "harmono"]);
@@ -550,6 +564,8 @@ function randomize(sd) {
   const p = defaults();
   const gens = Object.keys(GENS);
   p.gen = gens[Math.floor(rnd() * gens.length)];
+  // All palettes. Adding one changes the colour a seed number gives (one random draw picks it),
+  // but nothing else about that seed; saved looks store the palette by name, so they don't change.
   const pals = Object.keys(PALETTES);
   p.palette = pals[Math.floor(rnd() * pals.length)];
   p.colorA = randomHex(rnd); p.colorB = randomHex(rnd);
