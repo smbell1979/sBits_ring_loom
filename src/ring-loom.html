@@ -404,6 +404,7 @@ const paletteLabels =Object.fromEntries(Object.entries(PALETTES).map(([k, v]) =>
 const FLAT_GENS = new Set(["cover", "again", "blend", "harmono"]);
 const IDLE_HARMONO = p => p.gen === "harmono" ? "Harmonograph draws its own curves, so the base shape is ignored." : null;
 const IDLE_NO_WOBBLE = p => p.wobble === 0 ? "No effect while Wobble is 0." : null;
+const IDLE_NO_FADE = p => p.fade === 0 ? "No effect while Ring fade is 0." : null;
 
 // r: randomize range (null = never randomized). rp: chance the randomizer moves it off its default.
 const SCHEMA = [
@@ -469,6 +470,12 @@ const SCHEMA = [
   { id: "cycle", group: "look", label: "Cycle °/s", type: "range", min: -120, max: 120, step: 1, def: 0, r: [-60, 60], rp: 0.6 },
   { id: "width", group: "look", label: "Line width", type: "range", min: 0.25, max: 5, step: 0.05, def: 1.1, r: [0.5, 2.2] },
   { id: "alphaL", group: "look", label: "Opacity", type: "range", min: 0.05, max: 1, step: 0.01, def: 0.85, r: [0.4, 1] },
+  // Ring fade: a brightness ramp across the rings (fadeWeight). Not randomized (r: null), so seeds
+  // are unchanged by it.
+  { id: "fade", group: "look", label: "Ring fade", type: "range", min: 0, max: 1, step: 0.01, def: 0, r: null },
+  { id: "fadeCurve", group: "look", label: "Fade curve", type: "range", min: 0.2, max: 5, step: 0.05, def: 1, r: null, idle: IDLE_NO_FADE },
+  { id: "fadeFrom", group: "look", label: "Fade toward", type: "select", def: "last", r: null, idle: IDLE_NO_FADE,
+    options: { last: "Last rings", first: "First rings", ends: "Both ends", middle: "Middle" } },
   { id: "glow", group: "look", label: "Glow", type: "range", min: 0, max: 40, step: 0.5, def: 4, r: [0, 18],
     idle: () => FILTER_OK ? null : "This browser can't blur the canvas, so glow isn't drawn." },
   { id: "trails", group: "look", label: "Trails", type: "range", min: 0, max: 0.97, step: 0.01, def: 0, r: [0.3, 0.9], rp: 0.4 },
@@ -850,6 +857,16 @@ const evenCopies = m => Array.from({ length: m }, (_, i) => ({ angle: (i / m) * 
 // instead slid every point in a straight line: a 180-degree Rotate change collapsed the picture to
 // a dot mid-blend, a 180-degree yaw on a 3D shape flattened it to a line.)
 // M forces a point count so two looks being blended line up point for point.
+// Ring fade: ring k's brightness, 1 - fade x x^curve, where x runs 0 -> 1 across the rings toward
+// the faded end: the last rings, the first, both ends (0 in the middle), or the middle (0 at both
+// ends). Curve 1 is a straight ramp; above 1 the fade comes late and steep, below 1 early. It's
+// the ring's brightness share, so blends morph it and Houdini gets it as Alpha.
+function fadeWeight(p, k, N) {
+  if (!p.fade) return 1;
+  const u = N > 1 ? k / (N - 1) : 0;
+  const x = p.fadeFrom === "first" ? 1 - u : p.fadeFrom === "ends" ? Math.abs(2 * u - 1) : p.fadeFrom === "middle" ? 1 - Math.abs(2 * u - 1) : u;
+  return 1 - p.fade * Math.pow(x, p.fadeCurve);
+}
 function look3d(p, time, M) {
   const N = Math.round(p.rings);
   M = M || Math.round(p.res);
@@ -859,7 +876,7 @@ function look3d(p, time, M) {
   const ang = { pitch: p.pitch, yaw: p.yaw, roll: p.roll, rot: p.rotate + p.spin * time };
   const rings = [];
   for (let k = 0; k < N; k++) {
-    rings.push({ pre: ringPre(k, N, M, time, ctx), rgb: color(N > 1 ? k / (N - 1) : 0), w: 1, ang });
+    rings.push({ pre: ringPre(k, N, M, time, ctx), rgb: color(N > 1 ? k / (N - 1) : 0), w: fadeWeight(p, k, N), ang });
   }
   return {
     rings, time,

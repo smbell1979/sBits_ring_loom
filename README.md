@@ -44,6 +44,10 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
   re-save or delete entries. **Save to file** writes `name.ringloom.json` (every look, hold, blend,
   easing, turns, stagger and swirl) and **Open file** loads one back on any computer; it also accepts a settings code.
   Anything that would replace unsaved changes asks for a second press first.
+- **Ring fade** dims the rings along a ramp: the amount (0 off, 1 fades the far end out), a
+  **Fade curve** that works like a gamma (1 straight; above 1 the fade comes late and steep, below
+  1 early), and which rings fade: the last, the first, both ends, or the middle. It sets each
+  ring's brightness, so it morphs in sequence blends and reaches Houdini as `Alpha`.
 - Controls that do nothing in the current combination are dimmed, with the reason on hover.
 - **Typed values:** click the number beside any slider to type an exact value, then Enter (or
   click away); Esc cancels, Up/Down nudge by one step (Shift for ten). Values between the slider's

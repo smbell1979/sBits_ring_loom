@@ -56,6 +56,10 @@ looks.push(["roll+yaw+pitch", Object.assign(t.defaults(), { gen: "sphere", roll:
 for (const pal of ["infrared", "aurora", "vapor", "cyber", "fireice", "gold", "deepsea", "candy", "magma", "viridis", "rose", "sunset"]) {
   looks.push([`palette ${pal}`, Object.assign(t.defaults(), { gen: "again", rings: 16, palette: pal, spread: 1.7, cycle: 40 })]);
 }
+// Ring fade, every direction and a few curves (brightness per ring is compared exactly).
+for (const [from, curve] of [["last", 1], ["first", 2.5], ["ends", 0.4], ["middle", 1.7]]) {
+  looks.push([`fade ${from} ${curve}`, Object.assign(t.defaults(), { gen: "sphere", rings: 23, fade: 0.85, fadeCurve: curve, fadeFrom: from })]);
+}
 // Typed values between the sliders' steps (the page keeps them exactly).
 looks.push(["typed off-step values", Object.assign(t.defaults(), { gen: "again", roll: 12.37, yaw: -7.33, pitch: 3.14159, twist: 45.125, squash: 0.9137, zoom: 1.0625 })]);
 looks.push(["roll+mirror", Object.assign(t.defaults(), { gen: "slinky", roll: 75, pitch: 30, mirror: 5, rings: 20 })]);
@@ -92,6 +96,8 @@ const blendPairs = [
   // Points matched (the default) on a pair that folds without it, and the same pair with it off.
   ["matched points", flat({ gen: "blend", rings: 30, mirror: 1 }), flat({ gen: "again", rings: 20, base: "star", sides: 5, rotate: 30 }), {}],
   ["matching off", flat({ gen: "blend", rings: 30, mirror: 1 }), flat({ gen: "again", rings: 20, base: "star", sides: 5, rotate: 30 }), { match: false }],
+  // Between a faded look and an unfaded one with a different ring count: shares and fade mix.
+  ["fade blend", flat({ gen: "cover", rings: 19, fade: 0.9, fadeCurve: 2, fadeFrom: "ends" }), flat({ gen: "again", rings: 30 }), { ease: "smooth" }],
   ["stagger + views", flat({ gen: "slinky", rings: 20, yaw: 30, pitch: 50, zoom: 1.2, persp: 0.8 }),
     flat({ gen: "harmono", rings: 12, yaw: -120, pitch: -10, zoom: 0.8 }), { stagger: 0.6, ease: "smooth", turns: -1 }],
   ["swirl", flat({ gen: "again", rings: 24, base: "star", sides: 5 }), flat({ gen: "cover", rings: 19 }), { swirl: 270, ease: "smooth" }],

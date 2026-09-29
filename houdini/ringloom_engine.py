@@ -122,6 +122,9 @@ SCHEMA = [
     ("cycle", "range", 0, -120, 120),
     ("width", "range", 1.1, 0.25, 5),
     ("alphaL", "range", 0.85, 0.05, 1),
+    ("fade", "range", 0, 0, 1),
+    ("fadeCurve", "range", 1, 0.2, 5),
+    ("fadeFrom", "select", "last", ["last", "first", "ends", "middle"]),
     ("glow", "range", 4, 0, 40),
     ("trails", "range", 0, 0, 0.97),
     ("mirror", "range", 1, 1, 12),
@@ -430,6 +433,16 @@ def ring_world(p, k, N, M, time, mats):
     return np.stack([x, y, z], axis=1)
 
 
+def fade_weights(p, N):
+    """Ring fade (page fadeWeight): each ring's brightness, 1 - fade * x ** curve, x running 0 -> 1
+    toward the faded end."""
+    if not p["fade"]:
+        return np.ones(N)
+    u = np.arange(N) / (N - 1) if N > 1 else np.zeros(N)
+    x = {"first": 1 - u, "ends": np.abs(2 * u - 1), "middle": 1 - np.abs(2 * u - 1)}.get(p["fadeFrom"], u)
+    return 1 - p["fade"] * x ** p["fadeCurve"]
+
+
 def look3d(p, time, M=None):
     """A look at one moment: rings before the view rotation, plus view and drawing settings."""
     N = jsround(p["rings"])
@@ -440,7 +453,7 @@ def look3d(p, time, M=None):
     rgb = np.array([color(k / (N - 1) if N > 1 else 0) for k in range(N)], dtype=np.float64)
     m = jsround(p["mirror"])
     return {
-        "pre": pre, "rgb": rgb, "w": np.ones(N),
+        "pre": pre, "rgb": rgb, "w": fade_weights(p, N),
         # rotate and spin are kept apart (with time) for blends; rot is the angle actually used.
         "view": {"pitch": p["pitch"], "yaw": p["yaw"], "roll": p["roll"], "rot": p["rotate"] + p["spin"] * time,
                  "rotate": p["rotate"], "spin": p["spin"], "time": time,

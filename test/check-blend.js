@@ -310,6 +310,24 @@ setTimeout(() => {
       `finer-step shrink ${smooth.map(s => s.shrink.toFixed(1)).join(", ")}; peak/average speed ${smooth.map(s => s.even.toFixed(1)).join(", ")}`);
   }
 
+  // ---- ring fade ----
+  {
+    const N = 11, base = Object.assign(t.defaults(), { gen: "cover", rings: N });
+    const ws = extra => t.computeFrame(Object.assign({}, base, extra), 0, size, 64).rings.map(r => r.w);
+    const near = (a, b) => a.every((v, i) => Math.abs(v - b[i]) < 1e-12);
+    const u = Array.from({ length: N }, (_, k) => k / (N - 1));
+    check("ring fade 0 leaves every ring at full brightness", ws({ fade: 0, fadeCurve: 3, fadeFrom: "middle" }).every(w => w === 1));
+    check("fade 1, curve 1, last rings: a straight ramp 1 -> 0", near(ws({ fade: 1, fadeCurve: 1 }), u.map(x => 1 - x)));
+    const mid = extra => ws(extra)[5];  // the middle ring, x = 0.5 for "last"
+    check("fade curve bends the ramp like a gamma (2: late, 0.5: early)",
+      Math.abs(mid({ fade: 1, fadeCurve: 2 }) - 0.75) < 1e-12 && Math.abs(mid({ fade: 1, fadeCurve: 0.5 }) - (1 - Math.SQRT1_2)) < 1e-12,
+      `middle ring: curve 2 -> ${mid({ fade: 1, fadeCurve: 2 }).toFixed(3)}, curve 0.5 -> ${mid({ fade: 1, fadeCurve: 0.5 }).toFixed(3)}`);
+    check("fade toward first rings is the mirror image", near(ws({ fade: 0.6, fadeFrom: "first" }), ws({ fade: 0.6 }).reverse()));
+    const ends = ws({ fade: 0.8, fadeFrom: "ends" }), middle = ws({ fade: 0.8, fadeFrom: "middle" });
+    check("both ends: middle ring full, end rings dimmed by the fade amount", ends[5] === 1 && Math.abs(ends[0] - 0.2) < 1e-12 && Math.abs(ends[10] - 0.2) < 1e-12);
+    check("middle: end rings full, middle ring dimmed by the fade amount", middle[0] === 1 && middle[10] === 1 && Math.abs(middle[5] - 0.2) < 1e-12);
+  }
+
   // ---- typed values beside the sliders ----
   {
     const S = t.BY_ID, rd = (id, txt) => t.readTyped(S[id], txt);
