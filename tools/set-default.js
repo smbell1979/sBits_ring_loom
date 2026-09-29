@@ -75,7 +75,7 @@ function describe(shown) {
   const lines = [`"${seq.name}": ${seq.cards.length} look${seq.cards.length === 1 ? "" : "s"}` +
     (seq.cards.length > 1 ? `, ${total.toFixed(1)} s loop, ${seq.playing ? "plays on first visit" : "not playing until Play is pressed"}` : ", shown as a single look")];
   seq.cards.forEach((c, i) => lines.push(`  ${String(i + 1).padStart(2)}. ${c.name.padEnd(24)} ${c.params.gen.padEnd(8)} hold ${c.hold}  blend ${c.blend}  ${c.ease}` +
-    (c.turns ? `  turns ${c.turns > 0 ? "+" : ""}${c.turns}` : "") + (c.stagger ? `  stagger ${c.stagger}` : "") + (c.swirl ? `  swirl ${c.swirl}°` : "")));
+    (c.turns ? `  turns ${c.turns > 0 ? "+" : ""}${c.turns}` : "") + (c.stagger ? `  stagger ${c.stagger}` : "") + (c.swirl ? `  swirl ${c.swirl}°` : "") + (c.match === false ? "  match off" : "")));
   return lines.join("\n");
 }
 
@@ -96,6 +96,7 @@ function compare(raw, shown, play) {
       if (c[k] !== want) problems.push(`${at}: ${k} ${rc[k]} shows as ${c[k]}`);
     }
     if ((rc.ease === undefined ? "smooth" : rc.ease) !== c.ease) problems.push(`${at}: easing "${rc.ease}" shows as "${c.ease}"`);
+    if ((rc.match !== false) !== c.match) problems.push(`${at}: match points ${rc.match} shows as ${c.match}`);
     for (const [k, v] of Object.entries(rc.params || {})) {
       const s = byId[k];
       if (!s) { problems.push(`${at}: setting "${k}" isn't one this page knows`); continue; }

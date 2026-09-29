@@ -179,7 +179,7 @@ summary .sub { text-transform: none; letter-spacing: 0; font-weight: 400; color:
 }
 .cards:empty::before { content: "No looks yet. Press Add current look to start a sequence."; color: var(--muted); font-size: 12.5px; align-self: center; }
 .card {
-  flex: 0 0 300px; display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; align-items: center;
+  flex: 0 0 320px; display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; align-items: center;
   padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2);
 }
 .card.now { border-color: var(--accent); }
@@ -199,6 +199,8 @@ summary .sub { text-transform: none; letter-spacing: 0; font-weight: 400; color:
 }
 .icon:hover { color: var(--fg); border-color: var(--muted); }
 .icon:disabled { opacity: 0.3; cursor: not-allowed; }
+.icon.toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+.icon.toggle[aria-pressed="false"] { opacity: 0.45; }
 .card-times { display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 4px 6px; }
 .card-times label { display: flex; flex-direction: column; gap: 1px; font-size: 9.5px; line-height: 1.2; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
 .card-times input, .card-times select {
@@ -860,12 +862,17 @@ function project(f3, size) {
       V = mat3(rz3(a.roll), mat3(mat3(rx3(a.pitch), ry3(a.yaw)), rz3(a.rot)));
       angOf = a;
     }
-    // r.pre is either the points, or { a, b, t }: two rings' points mixed t of the way (a blend).
+    // r.pre is either the points, or { a, b, t, match }: two rings' points mixed t of the way (a
+    // blend), b's renumbered by match (start offset k, direction dir) when given.
     const mix = !(r.pre instanceof Float64Array), q = mix ? r.pre.a : r.pre, qb = mix ? r.pre.b : null, tm = mix ? r.pre.t : 0;
-    const n = q.length / 3, pts = new Float32Array(2 * n);
+    const n = q.length / 3, pts = new Float32Array(2 * n), mt = mix ? r.pre.match : null, Mr = n - 1;
     for (let j = 0; j < n; j++) {
       let x = q[3 * j], y = q[3 * j + 1], z = q[3 * j + 2];
-      if (mix) { x += (qb[3 * j] - x) * tm; y += (qb[3 * j + 1] - y) * tm; z += (qb[3 * j + 2] - z) * tm; }
+      if (mix) {
+        // The last point repeats the first, so it takes the first point's partner.
+        const jb = mt ? (((mt.dir * (j === Mr ? 0 : j) + mt.k) % Mr) + Mr) % Mr : j;
+        x += (qb[3 * jb] - x) * tm; y += (qb[3 * jb + 1] - y) * tm; z += (qb[3 * jb + 2] - z) * tm;
+      }
       const X = V[0] * x + V[1] * y + V[2] * z, Y = V[3] * x + V[4] * y + V[5] * z, Z = V[6] * x + V[7] * y + V[8] * z;
       const f = D / Math.max(0.25, D - Z);
       pts[2 * j] = X * f * S;
@@ -891,6 +898,65 @@ function pairUp(na, nb) {
   return { n, ia, ib, wa: ia.map(k => 1 / da[k]), wb: ib.map(k => 1 / db[k]) };
 }
 
+// ---------- matching points around rings ----------
+// A ring's points are numbered from wherever its generator starts, so in a blend point j of one
+// look can sit across the ring from point j of the next; points then cut across the middle and the
+// ring folds through itself mid-blend. Matching renumbers each partner ring -- a start offset, run
+// either way round -- so the points' total squared travel is least. Measured on the 90 preset
+// pairs: travel down a median 26% (up to 62%), and pairs with a ring folding to under half its size
+// mid-blend went from 26 to none. The numbering is chosen once per blend, from both looks as they
+// were when it began, and kept: re-choosing as the looks animate would make points jump.
+// Search: every S-th offset scored on every S-th point, then the offsets around the best scored on
+// all points. Candidates are tried in a fixed order and the first within MATCH_TIE of the least
+// wins -- identity first -- so symmetric shapes (a 5-point star has 5 equally good numberings)
+// get the same choice here and in Houdini despite rounding.
+const MATCH_TIE = 1e-9;
+function ringMatch(A, B, M) {
+  const S = Math.max(1, Math.floor(M / 90));
+  // Sum of squared distances from A's points j (every step-th) to B's points (dir * j + k) mod M.
+  // j and k are both in 0..M-1, so one add or subtract wraps the index (no modulo in the loop).
+  const cost = (k, dir, step) => {
+    let s = 0;
+    for (let j = 0; j < M; j += step) {
+      let jb = dir === 1 ? j + k : k - j;
+      if (jb >= M) jb -= M; else if (jb < 0) jb += M;
+      const a = 3 * j, b = 3 * jb, dx = A[a] - B[b], dy = A[a + 1] - B[b + 1], dz = A[a + 2] - B[b + 2];
+      s += dx * dx + dy * dy + dz * dz;
+    }
+    return s;
+  };
+  // Candidates as parallel arrays (offset, direction), scored, then the first within MATCH_TIE of
+  // the least in the order given.
+  const pick = (ks, dirs, step) => {
+    const c = new Float64Array(ks.length);
+    let least = Infinity;
+    for (let i = 0; i < ks.length; i++) { c[i] = cost(ks[i], dirs[i], step); if (c[i] < least) least = c[i]; }
+    for (let i = 0; i < ks.length; i++) if (c[i] <= least * (1 + MATCH_TIE)) return i;
+    return 0;
+  };
+  const ks = [0], dirs = [1];
+  for (const dir of [1, -1]) for (let k = 0; k < M; k += S) if (dir === -1 || k) { ks.push(k); dirs.push(dir); }
+  const n = pick(ks, dirs, S), nk = ks[n], nd = dirs[n];
+  const fk = [0], fd = [1];
+  for (let d = -S; d <= S; d++) { const k = (((nk + d) % M) + M) % M; if (nd === -1 || k) { fk.push(k); fd.push(nd); } }
+  const b = pick(fk, fd, 1);
+  return fk[b] === 0 && fd[b] === 1 ? null : { k: fk[b], dir: fd[b] };
+}
+// The numbering for every ring pair of a blend from pa to pb that began at clock tau0. Cached for
+// the blend in progress, so it's worked out once rather than every frame (a heavy look takes a
+// few milliseconds). The page's tau0 is worked back from the clock each frame, so it wobbles by
+// far less than the 0.05 s tolerance; another blend of the same two looks starts seconds away.
+let matchCache = null;
+function ringMatches(pa, pb, M, tau0) {
+  const c = matchCache;
+  if (c && c.pa === pa && c.pb === pb && c.M === M && Math.abs(c.tau0 - tau0) < 0.05) return c.m;
+  const fa = look3d(pa, tau0, M), fb = look3d(pb, tau0, M), R = pairUp(fa.rings.length, fb.rings.length);
+  const Mp = fa.rings[0].pre.length / 3 - 1;
+  const m = Array.from({ length: R.n }, (_, i) => ringMatch(fa.rings[R.ia[i]].pre, fb.rings[R.ib[i]].pre, Mp));
+  matchCache = { pa, pb, M, tau0, m };
+  return m;
+}
+
 // The in-plane angle (Rotate + spin x clock) t of the way from look a's to look b's, at clock time.
 // Each look keeps spinning at its own rate; the blend closes the gap between them the short way
 // round, the way being chosen from the gap at tau0, the clock when the blend began, and kept for
@@ -907,7 +973,8 @@ function rotBetween(va, vb, time, tau0, t) {
 }
 // Two look3d frames (built at the same moment) mixed t of the way, as a look3d frame. ringT
 // (optional): each output ring's own progress, for staggered blends; turns: extra roll turns;
-// tau0: the clock when the blend began (rotBetween), the frames' own time if not given.
+// tau0: the clock when the blend began (rotBetween), the frames' own time if not given; matches:
+// each ring pair's point numbering (ringMatches), or null to pair point j with point j.
 // Each ring's shape mixes in 3D and its view angles as angles, on that ring's own progress, so
 // staggered rings turn into place one by one:
 //   yaw, roll     the short way round (roll plus the card's turns)
@@ -915,7 +982,7 @@ function rotBetween(va, vb, time, tau0, t) {
 //   pitch         straight (it only runs -89..89)
 // The camera (distance, zoom) and drawing settings follow the overall progress t: in Houdini the
 // camera is one object, and this keeps the two matching exactly.
-function blendFrames(fa, fb, t, ringT, turns, tau0) {
+function blendFrames(fa, fb, t, ringT, turns, tau0, matches) {
   const R = pairUp(fa.rings.length, fb.rings.length);
   const va = fa.view, vb = fb.view, time = fa.time, t0 = tau0 === undefined ? time : tau0;
   const rings = [];
@@ -923,7 +990,7 @@ function blendFrames(fa, fb, t, ringT, turns, tau0) {
     const a = fa.rings[R.ia[i]], b = fb.rings[R.ib[i]], tr = ringT ? ringT[i] : t;
     // The shape isn't mixed here: project() mixes a.pre and b.pre as it reads them, which saves
     // allocating a blended copy of every ring every frame (a quarter of a heavy blend's time).
-    const pre = { a: a.pre, b: b.pre, t: tr };
+    const pre = { a: a.pre, b: b.pre, t: tr, match: matches ? matches[i] : null };
     const ang = {
       pitch: lerp(va.pitch, vb.pitch, tr), yaw: rollBetween(va.yaw, vb.yaw, tr, 0),
       roll: rollBetween(va.roll, vb.roll, tr, turns),
@@ -1000,12 +1067,14 @@ function ringProgress(u, n, stagger, ease) {
 // Look pa morphing into look pb at raw blend time u (0-1), shaped by the card `how`: its easing,
 // extra roll turns, stagger and swirl. Ring shapes, colours and view angles follow each ring's own
 // progress; the camera, kaleidoscope and drawing settings follow the overall one. tau0: the clock
-// when this blend began (see rotBetween); defaults to time.
+// when this blend began (see rotBetween, ringMatches); defaults to time. Points are matched around
+// the rings unless how.match is false.
 function morphFrame(pa, pb, time, size, M, u, how = {}, tau0 = time) {
   const ease = (EASES[how.ease] || EASES.linear).f, e = ease(u);
   const fa = look3d(pa, time, M), fb = look3d(pb, time, M);
   const ringE = ringProgress(u, Math.max(fa.rings.length, fb.rings.length), how.stagger, ease);
-  const f = project(blendFrames(fa, fb, e, ringE, how.turns, tau0), size);
+  const matches = how.match === false ? null : ringMatches(pa, pb, M, tau0);
+  const f = project(blendFrames(fa, fb, e, ringE, how.turns, tau0, matches), size);
   if (!how.swirl) return f;
   // Swirl peaks mid-blend and is gone as each ring arrives.
   return twistFrame(f, size, () => 0, i => how.swirl * Math.sin(Math.PI * (ringE ? ringE[i] : e)));
@@ -1304,7 +1373,7 @@ const seqPosEl = document.getElementById("seqPos"), seqPosOut = document.getElem
 const seqStatusEl = document.getElementById("seqStatus"), seqPlayBtn = document.getElementById("seqPlay");
 
 function makeCard(p, name) {
-  return { id: seq.nextId++, name, params: cleanParams(p), hold: 3, blend: 3, ease: "smooth", turns: 0, stagger: 0, swirl: 0 };
+  return { id: seq.nextId++, name, params: cleanParams(p), hold: 3, blend: 3, ease: "smooth", turns: 0, stagger: 0, swirl: 0, match: true };
 }
 const MAX_TURNS = 10, MAX_SWIRL = 720;
 // Blend-shaping settings: saved only when set, so sequences saved before they existed keep the
@@ -1320,11 +1389,14 @@ function cleanCard(raw) {
   if (Number.isFinite(+raw.turns)) c.turns = clamp(Math.round(+raw.turns), -MAX_TURNS, MAX_TURNS);
   if (Number.isFinite(+raw.stagger)) c.stagger = clamp(+raw.stagger, -MAX_STAGGER, MAX_STAGGER);
   if (Number.isFinite(+raw.swirl)) c.swirl = clamp(+raw.swirl, -MAX_SWIRL, MAX_SWIRL);
+  // On unless a file says false: sequences saved before it existed get matched points too.
+  c.match = raw.match !== false;
   return c;
 }
 const cardsForSave = () => seq.cards.map(c => {
   const out = { name: c.name, params: c.params, hold: c.hold, blend: c.blend, ease: c.ease };
   for (const k of BLEND_EXTRAS) if (c[k]) out[k] = c[k];
+  if (c.match === false) out.match = false;  // written only when off, like the extras above
   return out;
 });
 
@@ -1394,6 +1466,16 @@ function renderSeq() {
     };
     icon("Move up", "↑", () => { [seq.cards[idx - 1], seq.cards[idx]] = [seq.cards[idx], seq.cards[idx - 1]]; renderSeq(); persist(); }, idx === 0);
     icon("Move down", "↓", () => { [seq.cards[idx + 1], seq.cards[idx]] = [seq.cards[idx], seq.cards[idx + 1]]; renderSeq(); persist(); }, idx === n - 1);
+    // Match points: on by default. Off keeps the original numbering, where rings can twist and fold
+    // through themselves on the way into the next look -- sometimes the effect you want.
+    icon("Match points around each ring for the blend into the next look (lit: on; dim: off, rings may fold through themselves)", "⇄", e => {
+      card.match = !card.match;
+      e.currentTarget.setAttribute("aria-pressed", String(card.match));
+      seqStatusEl.textContent = card.match ? `${card.name} blends with matched points.` : `${card.name} blends with its original point order: rings may twist and fold through.`;
+      persist();
+    });
+    top.lastChild.classList.add("toggle");
+    top.lastChild.setAttribute("aria-pressed", String(card.match));
     icon("Update with current settings", "Update", () => {
       card.params = cleanParams(params);
       drawThumb(card.params, cv);

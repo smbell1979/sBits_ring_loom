@@ -85,7 +85,10 @@ const blendPairs = [
   // A blend that began earlier (tau0 1.2, gap -84 deg: the short way is clockwise); by now (3.1)
   // the gap is -217, whose short way would be the other direction. It must keep the first way.
   ["spin gap, blend began earlier", flat({ gen: "cover", rings: 19, spin: 30 }), flat({ gen: "again", rings: 24, spin: -40 }), { tau0: 1.2 }],
-  ["stagger + views",flat({ gen: "slinky", rings: 20, yaw: 30, pitch: 50, zoom: 1.2, persp: 0.8 }),
+  // Points matched (the default) on a pair that folds without it, and the same pair with it off.
+  ["matched points", flat({ gen: "blend", rings: 30, mirror: 1 }), flat({ gen: "again", rings: 20, base: "star", sides: 5, rotate: 30 }), {}],
+  ["matching off", flat({ gen: "blend", rings: 30, mirror: 1 }), flat({ gen: "again", rings: 20, base: "star", sides: 5, rotate: 30 }), { match: false }],
+  ["stagger + views", flat({ gen: "slinky", rings: 20, yaw: 30, pitch: 50, zoom: 1.2, persp: 0.8 }),
     flat({ gen: "harmono", rings: 12, yaw: -120, pitch: -10, zoom: 0.8 }), { stagger: 0.6, ease: "smooth", turns: -1 }],
   ["swirl", flat({ gen: "again", rings: 24, base: "star", sides: 5 }), flat({ gen: "cover", rings: 19 }), { swirl: 270, ease: "smooth" }],
   ["swirl zoomed", flat({ gen: "blend", rings: 25, zoom: 1.6 }), flat({ gen: "blend", rings: 25, zoom: 1.6, phase: -90 }), { swirl: -405 }],

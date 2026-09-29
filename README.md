@@ -19,7 +19,13 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
   generator, base-shape and ring-count changes read as motion. They work in 3D: ring shapes mix
   before the view is applied, and the view mixes as angles (Rotate, yaw and roll the short way
   round, spin as a speed), so a view change between looks is a real turn rather than a flat
-  picture squashing through the middle. Perspective and zoom mix for the whole picture. When ring or kaleidoscope counts
+  picture squashing through the middle. Perspective and zoom mix for the whole picture.
+  Points are matched around each ring: a ring's points are numbered from wherever its generator
+  starts, so point-for-point blending can send them across the ring, folding it through itself.
+  Each pair of rings is renumbered (a start offset, either way round) for the least travel,
+  chosen when the blend begins. On the presets that removed every hard fold (26 pairs had a
+  ring shrink past half its size mid-blend; none do now). The ⇄ on a card turns it off for that
+  blend, for the twisting fold-through look. When ring or kaleidoscope counts
   differ, the extra copies split out of their nearest neighbour instead of fading in; the only
   setting that switches outright is Light blend, at the midpoint. Colours (rings and background)
   mix in OKLCH, the hue taking the short way round, so opposite colours stay vivid and even in

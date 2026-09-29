@@ -8,7 +8,7 @@ const hook = "function draw() { renderFrame(currentFrame()); }";
 if (!js.includes(hook)) { console.error("FAIL: draw() hook line not found; update this test"); process.exit(1); }
 // Getters, not values: the hook line sits above some of these declarations, so reading them
 // eagerly would hit the temporal dead zone. By the time the checks run, all exist.
-const exposed = ["computeFrame", "blendFrames", "pairUp", "morphFrame", "rollFrame", "rollBetween", "rotBetween", "blendStartTau", "ringProgress", "cleanCard", "seqAt", "seq", "EASES", "defaults", "PRESETS", "START_PARAMS", "cleanParams",
+const exposed = ["computeFrame", "blendFrames", "pairUp", "morphFrame", "rollFrame", "rollBetween", "rotBetween", "blendStartTau", "ringMatches", "ringProgress", "cleanCard", "seqAt", "seq", "EASES", "defaults", "PRESETS", "START_PARAMS", "cleanParams",
   "readLibrary", "writeLibrary", "libraryUpsert", "parseSequenceFile", "sequenceFileData", "cardsForSave", "makeCard", "seqDirty", "seqKey",
   "lookFileData", "readLookFile", "params", "fmt", "readTyped", "BY_ID", "rgbToOklab", "oklabToRgb", "oklabToLinear", "mixColour", "hexToRgb"];
 js = js.replace(hook, hook + "\nglobalThis.__t = {" + exposed.map(n => `get ${n}() { return ${n}; }`).join(", ") + "};");
@@ -46,6 +46,12 @@ g.window = g;
 new Function(...Object.keys(g), js)(...Object.values(g));
 
 const D2R = Math.PI / 180;
+// Largest distance from any point of one ring to the nearest point of the other, taken both ways:
+// 0 when they are the same curve, however each is numbered.
+function curveGap(p, q) {
+  const one = (a, b) => { let w = 0; for (let j = 0; j < a.length; j += 2) { let m = Infinity; for (let k = 0; k < b.length; k += 2) m = Math.min(m, Math.hypot(a[j] - b[k], a[j + 1] - b[k + 1])); w = Math.max(w, m); } return w; };
+  return Math.max(one(p, q), one(q, p));
+}
 let failed = false;
 const check = (name, ok, detail) => { console.log(`${ok ? "ok  " : "FAIL"} ${name}${detail ? "  (" + detail + ")" : ""}`); if (!ok) failed = true; };
 
@@ -76,11 +82,16 @@ setTimeout(() => {
   const cw0 = f0.look.copies.reduce((s, c) => s + c.w, 0);
   check("t=0 kaleidoscope weight sums to A's copies", Math.abs(cw0 - fa.look.copies.length) < 1e-9, `sum ${cw0}`);
 
-  // t = 1 must be look B exactly.
+  // t = 1 must be look B exactly. With matched points B's rings may be numbered from another start
+  // or the other way round, so compare them as curves: every point of each on the other, both ways.
   const f1 = blendAt(1);
   let err1 = 0;
-  f1.rings.forEach((r, i) => { const b = fb.rings[R.ib[i]]; for (let j = 0; j < r.pts.length; j++) err1 = Math.max(err1, Math.abs(r.pts[j] - b.pts[j])); });
-  check("t=1 points equal look B", err1 < 1e-3, `max ${err1.toExponential(2)} px`);
+  f1.rings.forEach((r, i) => { err1 = Math.max(err1, curveGap(r.pts, fb.rings[R.ib[i]].pts)); });
+  check("t=1 rings equal look B's", err1 < 1e-3, `max ${err1.toExponential(2)} px`);
+  let raw1 = 0;
+  const f1raw = blendAt(1, { match: false });
+  f1raw.rings.forEach((r, i) => { const b = fb.rings[R.ib[i]]; for (let j = 0; j < r.pts.length; j++) raw1 = Math.max(raw1, Math.abs(r.pts[j] - b.pts[j])); });
+  check("t=1 with matching off: points equal look B's, point for point", raw1 < 1e-3, `max ${raw1.toExponential(2)} px`);
   check("t=1 every ring at full brightness", f1.rings.every(r => Math.abs(r.w - 1) < 1e-9));
   const ang1 = f1.look.copies.map(c => c.angle), want1 = fb.look.copies.map(c => c.angle);
   check("t=1 kaleidoscope angles equal B's", ang1.every((a, i) => Math.abs(a - want1[i]) < 1e-9));
@@ -148,6 +159,30 @@ setTimeout(() => {
     check("the clock at a blend's start is worked back correctly", Math.abs(back - 47.5) < 1e-3, `${back.toFixed(4)} (want 47.5)`);
   }
 
+  // ---- matching points around rings ----
+  {
+    // Folding, measured on the drawn picture: how much each ring shrinks mid-blend compared with its
+    // two ends (spread of its points about their centre). A ring folding through itself shrinks a lot.
+    const spread = p => { let cx = 0, cy = 0; const n = p.length / 2; for (let j = 0; j < p.length; j += 2) { cx += p[j]; cy += p[j + 1]; } cx /= n; cy /= n; let s = 0; for (let j = 0; j < p.length; j += 2) s += (p[j] - cx) ** 2 + (p[j + 1] - cy) ** 2; return Math.sqrt(s / n); };
+    const worstFold = (pa, pb, how) => {
+      const a = t.morphFrame(pa, pb, 3.1, size, M, 0, how), m = t.morphFrame(pa, pb, 3.1, size, M, 0.5, how), b = t.morphFrame(pa, pb, 3.1, size, M, 1, how);
+      return Math.max(...m.rings.map((r, i) => 1 - spread(r.pts) / ((spread(a.rings[i].pts) + spread(b.rings[i].pts)) / 2)));
+    };
+    const pairs = [["Petal bloom", "Star weave"], ["Squircle tunnel", "Petal bloom"], ["Breathing cover", "Squircle tunnel"]];
+    const folds = pairs.map(([x, y]) => [worstFold(look(x), look(y), { match: false }), worstFold(look(x), look(y), {})]);
+    check("matching removes rings folding through themselves mid-blend", folds.every(([off, on]) => off > 0.5 && on < 0.5 && on < off / 2),
+      folds.map(([off, on], i) => `${pairs[i].join(" -> ")}: worst shrink ${(off * 100).toFixed(0)}% -> ${(on * 100).toFixed(0)}%`).join("; "));
+    // The numbering is chosen when the blend begins and kept while both looks keep animating, so
+    // nothing jumps (worst step halves when the steps halve).
+    const pa = Object.assign(look("Breathing cover"), { drift: 1.2 }), pb = Object.assign(look("Squircle tunnel"), { drift: 0.8 });
+    const moving = n => { let w = 0, prev = t.morphFrame(pa, pb, 10, size, M, 0, {}, 10); for (let s = 1; s <= n; s++) { const u = s / n, f = t.morphFrame(pa, pb, 10 + 3 * u, size, M, u, {}, 10); f.rings.forEach((r, i) => { const q = prev.rings[i]; for (let j = 0; j < r.pts.length; j++) w = Math.max(w, Math.abs(r.pts[j] - q.pts[j])); }); prev = f; } return w; };
+    const m1 = moving(150), m2 = moving(300);
+    check("matched points don't jump while both looks animate through a blend", m1 / m2 > 1.8 && m1 / m2 < 2.2, `${m1.toFixed(2)} -> ${m2.toFixed(2)} px, ratio ${(m1 / m2).toFixed(2)}`);
+    // Nothing to gain, nothing changed: a look blended into itself keeps its numbering.
+    const same = look("Star weave");
+    check("a look blended into itself keeps its own numbering", t.ringMatches(same, Object.assign({}, same), M, 3.1).every(m => m === null));
+  }
+
   // ---- roll through a blend ----
   const maxDiff = (fx, fy) => { let m = 0; fx.rings.forEach((r, i) => { for (let j = 0; j < r.pts.length; j++) m = Math.max(m, Math.abs(r.pts[j] - fy.rings[i].pts[j])); }); return m; };
   // The whole approach rests on this: rolling a finished frame on screen is the same as rendering
@@ -172,7 +207,7 @@ setTimeout(() => {
   for (const [name, how] of hows) {
     const m0 = t.morphFrame(RA, RB, time, size, M, 0, how), m1 = t.morphFrame(RA, RB, time, size, M, 1, how);
     const e0 = Math.max(...m0.rings.map((r, i) => maxDiff({ rings: [r] }, { rings: [plainA.rings[R.ia[i]]] })));
-    const e1 = Math.max(...m1.rings.map((r, i) => maxDiff({ rings: [r] }, { rings: [plainB.rings[R.ib[i]]] })));
+    const e1 = Math.max(...m1.rings.map((r, i) => curveGap(r.pts, plainB.rings[R.ib[i]].pts)));
     check(`${name}: blend starts on A and ends exactly on B`, e0 < 1e-3 && e1 < 1e-3, `start ${e0.toExponential(1)}, end ${e1.toExponential(1)} px`);
   }
   // Continuity for every blend style: halving the step size must halve the worst step between

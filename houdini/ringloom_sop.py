@@ -479,6 +479,50 @@ def ring_progress(u, n, stagger, ease):
     return out
 
 
+MATCH_TIE = 1e-9
+
+
+def ring_match(A, B, M):
+    """Renumbering of ring B's points that least moves them from ring A's (page ringMatch, which
+    explains why): (k, dir) meaning B point (dir * j + k) mod M partners A point j, or None for
+    the original numbering. Same candidates, same order and same tie rule as the page, so both
+    pick the same one."""
+    S = max(1, M // 90)
+    A, B = A[:M], B[:M]
+
+    def pick(cands, step):
+        j = np.arange(0, M, step)
+        idx = np.array([(d * j + k) % M for k, d in cands])
+        diff = A[j][None, :, :] - B[idx]
+        costs = np.sum(diff * diff, axis=(1, 2))
+        least = costs.min()
+        return cands[int(np.argmax(costs <= least * (1 + MATCH_TIE)))]
+
+    coarse = [(0, 1)] + [(k, d) for d in (1, -1) for k in range(0, M, S) if d == -1 or k]
+    k0, d0 = pick(coarse, S)
+    fine = [(0, 1)] + [((k0 + d) % M, d0) for d in range(-S, S + 1) if d0 == -1 or (k0 + d) % M]
+    k, d = pick(fine, 1)
+    return None if (k, d) == (0, 1) else (k, d)
+
+
+def ring_matches(pa, pb, tau0, M):
+    """Point numbering for every ring pair of a blend from look pa to pb that began at clock tau0."""
+    fa, fb = look3d(pa, tau0, M), look3d(pb, tau0, M)
+    n, ia, ib, _, _ = pair_up(len(fa["w"]), len(fb["w"]))
+    Mp = fa["pre"].shape[1] - 1
+    return [ring_match(fa["pre"][ia[i]], fb["pre"][ib[i]], Mp) for i in range(n)]
+
+
+def _renumber(pre, match):
+    """Ring points (M + 1, 3) renumbered by match; the closing point repeats the new first one."""
+    if match is None:
+        return pre
+    k, d = match
+    M = pre.shape[0] - 1
+    idx = (d * np.arange(M) + k) % M
+    return pre[np.append(idx, idx[0])]
+
+
 def rot_between(va, vb, time, tau0, t):
     """The in-plane angle (Rotate + spin x clock) t of the way from look a to b (page rotBetween):
     each look keeps its own spin, and the gap between them closes the short way round, the way
@@ -488,16 +532,18 @@ def rot_between(va, vb, time, tau0, t):
     return va["rotate"] + va["spin"] * time + t * (vb["rotate"] - va["rotate"] + (vb["spin"] - va["spin"]) * time - way)
 
 
-def blend3d(A, B, u, turns=0, stagger=0.0, swirl=0.0, ease="linear", tau0=None):
+def blend3d(A, B, u, turns=0, stagger=0.0, swirl=0.0, ease="linear", tau0=None, matches=None):
     """A morphing into B at raw blend time u, with the card's ease, extra roll turns, stagger and
     swirl (page morphFrame, blendFrames). Ring shapes, colours and view angles follow each ring's
     own progress; the camera (distance, zoom) and drawing settings follow the overall eased
     progress. Rotate and spin follow rot_between; tau0 is the clock when the blend began (the
-    frames' own time if None)."""
+    frames' own time if None). matches: each ring pair's point numbering (ring_matches), or None
+    to pair point j with point j."""
     t = EASES[ease](u)
     n, ia, ib, wa, wb = pair_up(len(A["w"]), len(B["w"]))
     te = ring_progress(u, n, stagger, ease)
-    pa, pb = A["pre"][ia], B["pre"][ib]
+    pa = A["pre"][ia]
+    pb = np.stack([_renumber(B["pre"][ib[i]], matches[i] if matches else None) for i in range(n)])
     pre = pa + (pb - pa) * te[:, None, None]
     rgb = mix_colour(A["rgb"][ia], B["rgb"][ib], te)
     w = np.array([lerp(A["w"][ia[i]] * wa[i], B["w"][ib[i]] * wb[i], te[i]) for i in range(n)])
@@ -600,6 +646,7 @@ def clean_card(raw):
             pass
     if raw.get("ease") in EASES:
         card["ease"] = raw["ease"]
+    card["match"] = raw.get("match") is not False  # on unless the file says false, as on the page
     return card
 
 
@@ -687,10 +734,11 @@ def evaluate(cards, clock, M=None):
         return look3d(a["params"], tau, M), a["name"]
     b = cards[at["j"]]
     m = M or max(jsround(a["params"]["res"]), jsround(b["params"]["res"]))
-    # The clock when this blend began, for choosing its way round (rot_between).
+    # The clock when this blend began: its way round (rot_between) and point numbering are chosen then.
     tau0 = anim_time(cards, clock - at["u"] * a["blend"])
+    matches = ring_matches(a["params"], b["params"], tau0, m) if a["match"] else None
     return (blend3d(look3d(a["params"], tau, m), look3d(b["params"], tau, m), at["u"],
-                    a["turns"], a["stagger"], a["swirl"], a["ease"], tau0),
+                    a["turns"], a["stagger"], a["swirl"], a["ease"], tau0, matches),
             "%s -> %s" % (a["name"], b["name"]))
 
 

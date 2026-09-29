@@ -79,8 +79,10 @@ def main(path):
         B = E.look3d(E.clean_params(b["b"]), b["tau"], M)
         h = b["how"]
         label = f"blend '{b['name']}' at u={b['u']}"
+        tau0 = h.get("tau0", b["tau"])
+        matches = None if h.get("match") is False else E.ring_matches(E.clean_params(b["a"]), E.clean_params(b["b"]), tau0, M)
         frame = E.blend3d(A, B, b["u"], h.get("turns", 0), h.get("stagger", 0), h.get("swirl", 0), h.get("ease", "linear"),
-                          h.get("tau0"))
+                          tau0, matches)
         w = compare(label, frame, b["frame"])
         worst_case = max(worst_case, (w, label))
 
