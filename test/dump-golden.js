@@ -72,6 +72,9 @@ for (const [pal, cycle] of [["viridis", 0], ["custom", 45], ["spectrum", 0], ["s
 for (const [mirror, copySpan, reflect] of [[2, "half", false], [5, "full", true], [3, "half", true], [1, "full", true]]) {
   looks.push([`kaleidoscope ${mirror} ${copySpan}${reflect ? " mirrored" : ""}`, Object.assign(t.defaults(), { gen: "cover", rings: 12, mirror, copySpan, reflect })]);
 }
+// Straight down and straight up, the ends of View pitch.
+looks.push(["pitch 90", Object.assign(t.defaults(), { gen: "sphere", rings: 12, pitch: 90, yaw: 25, persp: 0.6 })]);
+looks.push(["pitch -90", Object.assign(t.defaults(), { gen: "slinky", rings: 14, pitch: -90, roll: 30 })]);
 // Typed values between the sliders' steps (the page keeps them exactly).
 looks.push(["typed off-step values", Object.assign(t.defaults(), { gen: "again", roll: 12.37, yaw: -7.33, pitch: 3.14159, twist: 45.125, squash: 0.9137, zoom: 1.0625 })]);
 looks.push(["roll+mirror", Object.assign(t.defaults(), { gen: "slinky", roll: 75, pitch: 30, mirror: 5, rings: 20 })]);

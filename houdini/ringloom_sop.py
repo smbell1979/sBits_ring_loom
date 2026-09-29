@@ -113,7 +113,7 @@ SCHEMA = [
     ("rotate", "range", 0, -180, 180),
     ("spin", "range", 0, -60, 60),
     ("yaw", "range", 0, -180, 180),
-    ("pitch", "range", 0, -89, 89),
+    ("pitch", "range", 0, -90, 90),
     ("roll", "range", 0, -180, 180),
     ("persp", "range", 0, 0, 1),
     ("zoom", "range", 0.95, 0.3, 2.5),
