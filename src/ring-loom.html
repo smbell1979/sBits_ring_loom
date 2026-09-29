@@ -355,7 +355,12 @@ const lerp = (a, b, t) => a + (b - a) * t;
 // major axis rising to ring 12 and falling again.
 const COVER_A = [0.91328,0.88923,0.90156,0.914,0.92694,0.93658,0.94651,0.95447,0.96266,0.9692,0.97286,0.97891,0.99275,0.98776,0.98695,0.97448,0.97259,0.964,0.93834,0.91339,0.88916,0.86564,0.84284,0.82075,0.79937,0.77871,0.75877,0.73954,0.72102,0.70322,0.68613];
 const COVER_B = [0.87574,0.85447,0.80034,0.7488,0.69965,0.6537,0.61028,0.56943,0.53113,0.49505,0.46126,0.42959,0.39968,0.37196,0.34598,0.32166,0.29877,0.27712,0.25672,0.23746,0.21912,0.20181,0.1852,0.16938,0.15434,0.13983,0.1258,0.1123,0.09915,0.08645,0.0739];
-const COVER_PSI = [-59.32,10.84,14.94,14.2,12.84,11.25,9.51,7.81,6.07,4.35,2.66,1.04,-0.56,-2.17,-3.65,-5.19,-6.62,-8.05,-9.52,-10.88,-12.25,-13.49,-14.73,-15.89,-17.01,-18.03,-19.1,-19.94,-20.64,-21.37,-21.92];
+// Rings 0 and 1 are near-circles (minor/major 0.959 and 0.961), so their measured angles were
+// noise: -59.32 and 10.84, which are 76.5 and 5.4 degrees off a quadratic fitted to rings 2-9 (those
+// all sit within 0.25 of it). Harmless on the cover, where a circle looks the same at any angle,
+// but Minor scale or Side flare stretches them, and ring 0 then stood out 70 degrees from the rest.
+// Both use the fitted values instead.
+const COVER_PSI = [17.18,16.24,14.94,14.2,12.84,11.25,9.51,7.81,6.07,4.35,2.66,1.04,-0.56,-2.17,-3.65,-5.19,-6.62,-8.05,-9.52,-10.88,-12.25,-13.49,-14.73,-15.89,-17.01,-18.03,-19.1,-19.94,-20.64,-21.37,-21.92];
 const COVER_MEAN_A = COVER_A.reduce((s, v) => s + v, 0) / COVER_A.length;
 const COVER_SCALE = 1.05;
 
@@ -578,6 +583,73 @@ function hexToRgb(h) {
 function rgbToHex(r, g, b) {
   return "#" + [r, g, b].map(v => Math.round(clamp(v, 0, 255)).toString(16).padStart(2, "0")).join("");
 }
+// Colour blends between looks mix in OKLCH: lightness, chroma and hue of Björn Ottosson's
+// perceptual OKLab space, the hue taking the short way round the wheel. Measured on real pairs
+// (opening red #f44e35 -> blue #1670f5, midpoint lightness / chroma):
+//   sRGB 0.546 / 0.093 -- darker than both ends (0.653, 0.577) and greyed
+//   OKLab straight line 0.615 / 0.086 -- lightness fixed, but still grey: any straight line
+//     between opposite colours passes near the grey axis
+//   OKLCH 0.615 / 0.211 -- even lightness and full colour, via an in-between hue (here purple)
+// Only blends use this; each look's own palette is unchanged.
+const srgbToLinear = v => { const c = v / 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+const linearToSrgb = l => { const c = clamp(l, 0, 1); return 255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055); };
+function rgbToOklab(rgb) {
+  const [r, g, b] = rgb.map(srgbToLinear);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+          1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+          0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s];
+}
+// OKLab -> linear-light sRGB, unclamped (channels outside 0-1 mean "not displayable").
+function oklabToLinear(L, A, B) {
+  const l = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3;
+  const m = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3;
+  const s = (L - 0.0894841775 * A - 1.2914855480 * B) ** 3;
+  return [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+          -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+          -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s];
+}
+function oklabToRgb([L, A, B]) { return oklabToLinear(L, A, B).map(linearToSrgb); }
+// An OKLCH colour as 0-255 sRGB. A vivid in-between hue is often more colourful than a screen can
+// show (two thirds of mid-blend colours between strong colours are), so it is pulled toward the
+// grey of the same lightness along a straight line in linear light, just far enough to fit. The
+// screen's range is a cube there, so the distance is exact and changes smoothly.
+// Two things tried first and dropped:
+// - Clipping each channel: hue shifts up to 29 degrees.
+// - Reducing chroma at fixed lightness and hue (binary search): jumps. At a corner of the range
+//   such as pure blue, the fixed-hue line leaves the cube at once, so the first instant of a blend
+//   from blue fell to 84% chroma, a 50-level flash. Any method that keeps both lightness and hue
+//   exactly must jump there.
+// This way the hue drifts a little instead: on the page's palette colours, median 0.5 degrees,
+// 95% under 6, worst 15 (extreme pairs of pure primaries: 20).
+function oklchToRgb(L, C, h) {
+  L = clamp(L, 0, 1);
+  const lin = oklabToLinear(L, C * Math.cos(h), C * Math.sin(h)), g = L ** 3;  // g: that grey
+  let s = 1;
+  for (const c of lin) {
+    if (c > 1) s = Math.min(s, (1 - g) / (c - g));
+    else if (c < 0) s = Math.min(s, g / (g - c));
+  }
+  return lin.map(c => linearToSrgb(g + s * (c - g)));
+}
+// Below this chroma a colour is grey (black, white, greys) and its hue is rounding noise, so a
+// blend with it takes the other colour's hue instead of swinging through a random one.
+const GREY_CHROMA = 1e-4;
+// Colour ca mixed t of the way to cb (both 0-255 sRGB). The ends are returned as given, so a blend
+// starts and finishes on exactly the look's own colours.
+function mixColour(ca, cb, t) {
+  if (t <= 0) return ca.slice();
+  if (t >= 1) return cb.slice();
+  const [La, aa, ba] = rgbToOklab(ca), [Lb, ab, bb] = rgbToOklab(cb);
+  const Ca = Math.hypot(aa, ba), Cb = Math.hypot(ab, bb);
+  let ha = Math.atan2(ba, aa), hb = Math.atan2(bb, ab);
+  if (Ca < GREY_CHROMA) ha = hb;
+  if (Cb < GREY_CHROMA) hb = ha;
+  const dh = Math.atan2(Math.sin(hb - ha), Math.cos(hb - ha));  // the short way round
+  return oklchToRgb(lerp(La, Lb, t), lerp(Ca, Cb, t), ha + dh * t);
+}
 function hslToRgb(h, s, l) {
   h = ((h % 360) + 360) % 360;
   const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = l - c / 2;
@@ -797,7 +869,7 @@ function blendFrames(fa, fb, t, ringT) {
     const a = fa.rings[R.ia[i]], b = fb.rings[R.ib[i]], tr = ringT ? ringT[i] : t;
     const pts = new Float32Array(a.pts.length);
     for (let j = 0; j < pts.length; j++) pts[j] = a.pts[j] + (b.pts[j] - a.pts[j]) * tr;
-    rings.push({ pts, rgb: a.rgb.map((v, c) => lerp(v, b.rgb[c], tr)), w: lerp(a.w * R.wa[i], b.w * R.wb[i], tr) });
+    rings.push({ pts, rgb: mixColour(a.rgb, b.rgb, tr), w: lerp(a.w * R.wa[i], b.w * R.wb[i], tr) });
   }
   const la = fa.look, lb = fb.look, C = pairUp(la.copies.length, lb.copies.length);
   const copies = [];
@@ -812,7 +884,7 @@ function blendFrames(fa, fb, t, ringT) {
       glow: lerp(la.glow, lb.glow, t), trails: lerp(la.trails, lb.trails, t),
       // The one setting that cannot be part-way: a line is either light-blended or not.
       additive: t < 0.5 ? la.additive : lb.additive,
-      bg: la.bg.map((v, c) => lerp(v, lb.bg[c], t)), copies,
+      bg: mixColour(la.bg, lb.bg, t), copies,
     },
   };
 }

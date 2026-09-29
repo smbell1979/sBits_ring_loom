@@ -10,7 +10,7 @@ if (!js.includes(hook)) { console.error("FAIL: draw() hook line not found; updat
 // eagerly would hit the temporal dead zone. By the time the checks run, all exist.
 const exposed = ["computeFrame", "blendFrames", "pairUp", "morphFrame", "rollFrame", "rollBetween", "ringProgress", "cleanCard", "seqAt", "seq", "EASES", "defaults", "PRESETS", "START_PARAMS", "cleanParams",
   "readLibrary", "writeLibrary", "libraryUpsert", "parseSequenceFile", "sequenceFileData", "cardsForSave", "makeCard", "seqDirty", "seqKey",
-  "lookFileData", "readLookFile", "params", "fmt", "readTyped", "BY_ID"];
+  "lookFileData", "readLookFile", "params", "fmt", "readTyped", "BY_ID", "rgbToOklab", "oklabToRgb", "oklabToLinear", "mixColour", "hexToRgb"];
 js = js.replace(hook, hook + "\nglobalThis.__t = {" + exposed.map(n => `get ${n}() { return ${n}; }`).join(", ") + "};");
 
 // In-memory localStorage whose behaviour the library tests can switch: normal, throwing
@@ -172,6 +172,63 @@ setTimeout(() => {
   }
   // Turns in files: whole numbers only, clamped, and left out of files when 0.
   check("turns read from a file are whole and clamped", t.cleanCard({ params: A, turns: 2.6 }).turns === 3 && t.cleanCard({ params: A, turns: -99 }).turns === -10 && t.cleanCard({ params: A }).turns === 0);
+
+  // ---- colour mixing (OKLCH) ----
+  {
+    // Reference OKLab values for the sRGB primaries, as published by Björn Ottosson and in the CSS
+    // Color 4 spec -- a source independent of this code.
+    const refs = [[[255, 255, 255], [1, 0, 0]], [[255, 0, 0], [0.627955, 0.224863, 0.125846]],
+      [[0, 255, 0], [0.866440, -0.233888, 0.179498]], [[0, 0, 255], [0.452014, -0.032457, -0.311528]]];
+    const refErr = Math.max(...refs.map(([rgb, lab]) => Math.max(...t.rgbToOklab(rgb).map((v, i) => Math.abs(v - lab[i])))));
+    check("OKLab conversion matches published reference values", refErr < 1e-5, `max error ${refErr.toExponential(1)}`);
+    // The published matrices are rounded to 10 decimals, so the round trip is exact to about 1e-4 of
+    // a level: far below one 8-bit step, which is what matters.
+    let rt = 0, changed = 0;
+    for (let k = 0; k < 4000; k++) {
+      const c = [(k * 37) % 256, (k * 91) % 256, (k * 53) % 256], back = t.oklabToRgb(t.rgbToOklab(c));
+      rt = Math.max(rt, ...back.map((v, i) => Math.abs(v - c[i])));
+      if (back.some((v, i) => Math.round(v) !== c[i])) changed++;
+    }
+    check("sRGB -> OKLab -> sRGB round trip never changes an 8-bit value", changed === 0 && rt < 1e-3, `max ${rt.toExponential(1)} of a level`);
+    const red = t.hexToRgb("#f44e35"), blue = t.hexToRgb("#1670f5");
+    check("a colour mix starts and ends on exactly the two colours", JSON.stringify(t.mixColour(red, blue, 0)) === JSON.stringify(red) && JSON.stringify(t.mixColour(red, blue, 1)) === JSON.stringify(blue));
+    const LC = c => { const [L, a, b] = t.rgbToOklab(c); return { L, C: Math.hypot(a, b) }; };
+    const pairs = [["#f44e35", "#1670f5"], ["#ff8000", "#0040ff"], ["#0000ff", "#ffff00"], ["#ff00ff", "#00c000"], ["#00e5ff", "#ff3d9a"]];
+    // Mid-blend chroma: exactly as asked (halfway between the ends), or where the screen can't show
+    // that much, at the edge of what it can -- 1% more colour would be undisplayable.
+    let chromaOk = true, dip = 0, beatsOld = true;
+    const notes = [];
+    for (const [x, y] of pairs) {
+      const a = t.hexToRgb(x), b = t.hexToRgb(y), mid = t.mixColour(a, b, 0.5), m = LC(mid), ea = LC(a), eb = LC(b);
+      const asked = (ea.C + eb.C) / 2, lab = t.rgbToOklab(mid);
+      const more = t.oklabToLinear(lab[0], lab[1] * 1.01, lab[2] * 1.01);
+      const atLimit = more.some(v => v < -1e-9 || v > 1 + 1e-9);
+      if (!(Math.abs(m.C - asked) < 1e-4 || (m.C < asked && atLimit))) chromaOk = false;
+      if (m.C <= LC(a.map((v, i) => (v + b[i]) / 2)).C) beatsOld = false;
+      dip = Math.max(dip, Math.min(ea.L, eb.L) - m.L);
+      notes.push(`${(m.C / asked * 100).toFixed(0)}%`);
+    }
+    check("mid-blend colour is as colourful as asked, or as the screen can show", chromaOk, `share of the asked chroma: ${notes.join(", ")}`);
+    check("every pair is more colourful mid-blend than the old sRGB mix", beatsOld);
+    check("mid-blend colours never go darker than both ends", dip <= 1e-9, `worst dip ${dip.toFixed(4)}`);
+    const black = [0, 0, 0], mid = t.mixColour(black, red, 0.5), redLab = t.rgbToOklab(red), midLab = t.rgbToOklab(mid);
+    const hueDiff = Math.abs(Math.atan2(midLab[2], midLab[1]) - Math.atan2(redLab[2], redLab[1]));
+    check("a blend from black keeps the other colour's hue", hueDiff < 1e-6, `${(hueDiff / D2R).toFixed(6)} deg off`);
+    let inRange = true;
+    for (let s = 1; s < 400; s++) if (!t.mixColour(t.hexToRgb("#00ff66"), t.hexToRgb("#ff00cc"), s / 400).every(v => v >= 0 && v <= 255)) inRange = false;
+    check("mixed colours stay displayable, even through very vivid in-between hues", inRange);
+    // Smooth, including where the screen's range limits colour. Measured perceptually (OKLab
+    // distance per step): the worst step must shrink 4x when steps are 4x finer (a jump would stay),
+    // and no moment may run more than 4x the blend's average speed (a visible flick). Pure blue and
+    // pure green are corners of the range, where a hue-exact method jumped at the start.
+    const dE = (p, q) => { const a = t.rgbToOklab(p), b = t.rgbToOklab(q); return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]); };
+    const speed = (ca, cb, n) => { let peak = 0, sum = 0, prev = t.mixColour(ca, cb, 0); for (let s = 1; s <= n; s++) { const c = t.mixColour(ca, cb, s / n), d = dE(prev, c); peak = Math.max(peak, d); sum += d; prev = c; } return { peak, avg: sum / n }; };
+    const colourPairs = [[red, blue], ["#0000ff", "#ffff00"], ["#00ff66", "#ff00cc"], ["#ff0000", "#0000ff"], ["#00ff00", "#ff00ff"], ["#c4ff3d", "#ff00d4"]]
+      .map(p => p.map(c => typeof c === "string" ? t.hexToRgb(c) : c));
+    const smooth = colourPairs.map(([ca, cb]) => { const c = speed(ca, cb, 800), f = speed(ca, cb, 3200); return { shrink: c.peak / f.peak, even: c.peak / c.avg }; });
+    check("colour changes smoothly through a blend (no jumps, no flicks)", smooth.every(s => s.shrink > 3.5 && s.even < 4),
+      `finer-step shrink ${smooth.map(s => s.shrink.toFixed(1)).join(", ")}; peak/average speed ${smooth.map(s => s.even.toFixed(1)).join(", ")}`);
+  }
 
   // ---- typed values beside the sliders ----
   {

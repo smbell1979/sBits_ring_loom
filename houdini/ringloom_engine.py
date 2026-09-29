@@ -40,7 +40,8 @@ def clamp(v, a, b):
 # 31 ellipses measured from the Two Lanes "Searching" cover (see the page for the method).
 COVER_A = [0.91328, 0.88923, 0.90156, 0.914, 0.92694, 0.93658, 0.94651, 0.95447, 0.96266, 0.9692, 0.97286, 0.97891, 0.99275, 0.98776, 0.98695, 0.97448, 0.97259, 0.964, 0.93834, 0.91339, 0.88916, 0.86564, 0.84284, 0.82075, 0.79937, 0.77871, 0.75877, 0.73954, 0.72102, 0.70322, 0.68613]
 COVER_B = [0.87574, 0.85447, 0.80034, 0.7488, 0.69965, 0.6537, 0.61028, 0.56943, 0.53113, 0.49505, 0.46126, 0.42959, 0.39968, 0.37196, 0.34598, 0.32166, 0.29877, 0.27712, 0.25672, 0.23746, 0.21912, 0.20181, 0.1852, 0.16938, 0.15434, 0.13983, 0.1258, 0.1123, 0.09915, 0.08645, 0.0739]
-COVER_PSI = [-59.32, 10.84, 14.94, 14.2, 12.84, 11.25, 9.51, 7.81, 6.07, 4.35, 2.66, 1.04, -0.56, -2.17, -3.65, -5.19, -6.62, -8.05, -9.52, -10.88, -12.25, -13.49, -14.73, -15.89, -17.01, -18.03, -19.1, -19.94, -20.64, -21.37, -21.92]
+# Rings 0 and 1 use fitted angles, not the measured -59.32 and 10.84: see the page's COVER_PSI.
+COVER_PSI = [17.18, 16.24, 14.94, 14.2, 12.84, 11.25, 9.51, 7.81, 6.07, 4.35, 2.66, 1.04, -0.56, -2.17, -3.65, -5.19, -6.62, -8.05, -9.52, -10.88, -12.25, -13.49, -14.73, -15.89, -17.01, -18.03, -19.1, -19.94, -20.64, -21.37, -21.92]
 COVER_MEAN_A = sum(COVER_A) / len(COVER_A)
 COVER_SCALE = 1.05
 
@@ -151,6 +152,75 @@ def clean_params(raw):
 def hex_to_rgb(h):
     n = int(h[1:], 16)
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+
+
+# Blends between looks mix colours in OKLCH (OKLab lightness, chroma, hue the short way round), as
+# the page's mixColour does; see its comment for the measurements behind that choice. Arrays of
+# 0-255 sRGB colours, shape (..., 3).
+_LMS = np.array([[0.4122214708, 0.5363325363, 0.0514459929],
+                 [0.2119034982, 0.6806995451, 0.1073969566],
+                 [0.0883024619, 0.2817188376, 0.6299787005]])
+_LAB = np.array([[0.2104542553, 0.7936177850, -0.0040720468],
+                 [1.9779984951, -2.4285922050, 0.4505937099],
+                 [0.0259040371, 0.7827717662, -0.8086757660]])
+_LMS_INV = np.array([[1.0, 0.3963377774, 0.2158037573],
+                     [1.0, -0.1055613458, -0.0638541728],
+                     [1.0, -0.0894841775, -1.2914855480]])
+_RGB = np.array([[4.0767416621, -3.3077115913, 0.2309699292],
+                 [-1.2684380046, 2.6097574011, -0.3413193965],
+                 [-0.0041960863, -0.7034186147, 1.7076147010]])
+
+
+def rgb_to_oklab(rgb):
+    c = np.asarray(rgb, dtype=np.float64) / 255
+    lin = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+    return np.cbrt(lin @ _LMS.T) @ _LAB.T
+
+
+def _oklab_to_linear(lab):
+    return ((np.asarray(lab, dtype=np.float64) @ _LMS_INV.T) ** 3) @ _RGB.T
+
+
+def _linear_to_srgb(lin):
+    lin = np.clip(lin, 0, 1)
+    return 255 * np.where(lin <= 0.0031308, 12.92 * lin, 1.055 * lin ** (1 / 2.4) - 0.055)
+
+
+def oklab_to_rgb(lab):
+    return _linear_to_srgb(_oklab_to_linear(lab))
+
+
+GREY_CHROMA = 1e-4   # below this a colour's hue is rounding noise; the page's GREY_CHROMA
+
+
+def oklch_to_rgb(L, C, h):
+    """OKLCH arrays -> 0-255 sRGB. A colour the screen can't show is pulled toward the grey of the
+    same lightness along a straight line in linear light, just far enough to fit (page oklchToRgb,
+    which explains why this rather than clipping or keeping hue exactly)."""
+    L = np.clip(np.asarray(L, dtype=np.float64), 0, 1)
+    C, h = np.asarray(C, dtype=np.float64), np.asarray(h, dtype=np.float64)
+    lin = _oklab_to_linear(np.stack([L, C * np.cos(h), C * np.sin(h)], axis=-1))
+    g = (L ** 3)[..., None]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        over = np.where(lin > 1, (1 - g) / (lin - g), 1.0)
+        under = np.where(lin < 0, g / (g - lin), 1.0)
+    s = np.minimum(1.0, np.minimum(over, under).min(axis=-1))[..., None]
+    return _linear_to_srgb(g + s * (lin - g))
+
+
+def mix_colour(ca, cb, t):
+    """ca mixed t of the way to cb in OKLCH; t may be one value per colour. Ends returned exactly."""
+    ca, cb = np.asarray(ca, dtype=np.float64), np.asarray(cb, dtype=np.float64)
+    t = np.asarray(t, dtype=np.float64)
+    A, B = rgb_to_oklab(ca), rgb_to_oklab(cb)
+    Ca, Cb = np.hypot(A[..., 1], A[..., 2]), np.hypot(B[..., 1], B[..., 2])
+    ha, hb = np.arctan2(A[..., 2], A[..., 1]), np.arctan2(B[..., 2], B[..., 1])
+    ha = np.where(Ca < GREY_CHROMA, hb, ha)
+    hb = np.where(Cb < GREY_CHROMA, ha, hb)
+    dh = np.arctan2(np.sin(hb - ha), np.cos(hb - ha))
+    mixed = oklch_to_rgb(A[..., 0] + (B[..., 0] - A[..., 0]) * t, Ca + (Cb - Ca) * t, ha + dh * t)
+    tt = t[..., None] if t.ndim else t
+    return np.where(tt <= 0, ca, np.where(tt >= 1, cb, mixed))
 
 
 def hsl_to_rgb(h, s, l):
@@ -415,7 +485,7 @@ def blend3d(A, B, u, turns=0, stagger=0.0, swirl=0.0, ease="linear"):
     te = ring_progress(u, n, stagger, ease)
     pa, pb = A["pre"][ia], B["pre"][ib]
     pre = pa + (pb - pa) * te[:, None, None]
-    rgb = A["rgb"][ia] + (B["rgb"][ib] - A["rgb"][ia]) * te[:, None]
+    rgb = mix_colour(A["rgb"][ia], B["rgb"][ib], te)
     w = np.array([lerp(A["w"][ia[i]] * wa[i], B["w"][ib[i]] * wb[i], te[i]) for i in range(n)])
     cn, cia, cib, cwa, cwb = pair_up(len(A["copies"]), len(B["copies"]))
     copies = [(lerp(A["copies"][cia[i]][0], B["copies"][cib[i]][0], t),
@@ -428,7 +498,7 @@ def blend3d(A, B, u, turns=0, stagger=0.0, swirl=0.0, ease="linear"):
     la, lb = A["look"], B["look"]
     look = {k: lerp(la[k], lb[k], t) for k in ("width", "alpha", "glow", "trails")}
     look["additive"] = la["additive"] if t < 0.5 else lb["additive"]
-    look["bg"] = [lerp(la["bg"][c], lb["bg"][c], t) for c in range(3)]
+    look["bg"] = [float(v) for v in mix_colour(la["bg"], lb["bg"], t)]
     frame = {"pre": pre, "rgb": rgb, "w": w, "view": view, "copies": copies, "look": look}
     if swirl:
         # Peak twist mid-blend, back to none as each ring arrives.

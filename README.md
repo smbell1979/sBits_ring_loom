@@ -10,13 +10,18 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
   - *Slinky* - rings strung around an orbit.
   - *Harmonograph* - Lissajous loops with a phase drift per ring.
   - *Two-ellipse blend* - interpolates a start ellipse into an end ellipse.
-  - *Two Lanes (measured)* - 31 ellipses measured from the Two Lanes "Searching" cover.
+  - *Two Lanes (measured)* - 31 ellipses measured from the Two Lanes "Searching" cover. The two
+    outermost are near-circles whose measured angles were noise, so they follow the fitted trend
+    of the rest (otherwise Minor scale or Side flare turned the outer ring 70 degrees off).
 - **Randomize** (R) rolls a reproducible look from a seed; **Mutate** (M) nudges the current one.
 - **Sequence:** add looks as cards, give each a hold time, a blend time and an easing, and play
   them in a loop. Blends morph every ring point into the next look while both keep animating, so
   generator, base-shape and ring-count changes read as motion. When ring or kaleidoscope counts
   differ, the extra copies split out of their nearest neighbour instead of fading in; the only
-  setting that switches outright is Light blend, at the midpoint. A change of View roll turns the
+  setting that switches outright is Light blend, at the midpoint. Colours (rings and background)
+  mix in OKLCH, the hue taking the short way round, so opposite colours stay vivid and even in
+  brightness mid-blend instead of dipping to a dark grey; colours too vivid for the screen are
+  pulled toward grey just enough to fit, which keeps every blend smooth. A change of View roll turns the
   whole picture the short way round. Three per-card settings shape the blend into the next look:
   - **Turns** adds whole extra roll turns (positive counter-clockwise, negative clockwise).
   - **Stagger** (-0.9 to 0.9) blends the rings one after another, so the change ripples through

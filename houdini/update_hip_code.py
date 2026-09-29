@@ -30,7 +30,10 @@ code = open(os.path.join(HERE, "ringloom_sop.py"), encoding="utf-8").read()
 # Two looks with different rolls, sampled a quarter of the way through a blend that adds an extra
 # roll turn, so the check covers the newest view and sequence features, not just one still look.
 probe_a = dict(E.DEFAULTS, gen="sphere", roll=63.0, yaw=-28.0, pitch=17.0, persp=0.5, rings=9, res=64)
-probe_b = dict(E.DEFAULTS, gen="cover", roll=-40.0, yaw=-28.0, pitch=17.0, persp=0.5, rings=6, res=64)
+# Different palettes, so the colour mixing (OKLCH, with out-of-range colours pulled toward grey)
+# is checked too, not only positions.
+probe_b = dict(E.DEFAULTS, gen="cover", roll=-40.0, yaw=-28.0, pitch=17.0, persp=0.5, rings=6, res=64,
+               palette="acid" if E.DEFAULTS["palette"] != "acid" else "ember")
 probe_cards = [{"name": "probe a", "params": probe_a, "hold": 0.5, "blend": 2, "ease": "linear", "turns": 1,
                 "stagger": 0.5, "swirl": 200},
                {"name": "probe b", "params": probe_b, "hold": 1, "blend": 1}]
@@ -62,15 +65,20 @@ for hip in sys.argv[1:]:
         clock = 24 / sop.evalParm("fps")
         frame, label = E.evaluate([E.clean_card(c) for c in probe_cards], clock)
         assert "->" in label, "probe time should fall inside the blend, got %r" % label
-        want = np.concatenate([r[0] for r in E.world_rings(frame)]) * sop.evalParm("scale")
+        rings = E.world_rings(frame)
+        want = np.concatenate([r[0] for r in rings]) * sop.evalParm("scale")
         err = float(np.max(np.abs(P - want))) if P.shape == want.shape else float("inf")
+        Cd = np.array(sop.geometry().primFloatAttribValues("Cd")).reshape(-1, 3)
+        want_cd = np.array([r[1] for r in rings])
+        cd_err = float(np.max(np.abs(Cd - want_cd))) if Cd.shape == want_cd.shape else float("inf")
+        colour_spread = float(np.ptp(want_cd, axis=0).max())  # proof the probe really mixes colours
         file_parm.set(old_raw)
         if look:
             sop.parm("look").set(look)
-        status = "ok" if not errs and err < 1e-5 else "FAILED"
+        status = "ok" if not errs and err < 1e-5 and cd_err < 1e-5 and colour_spread > 0.05 else "FAILED"
         ok = ok and status == "ok"
-        print("%s: %s updated, rolled blend check %s (max error %.1e)%s"
-              % (hip, sop.path(), status, err, "; errors: %s" % (errs,) if errs else ""))
+        print("%s: %s updated, rolled blend check %s (max error: points %.1e, colours %.1e)%s"
+              % (hip, sop.path(), status, err, cd_err, "; errors: %s" % (errs,) if errs else ""))
     if ok:
         hou.hipFile.save(hip)
         print("%s: saved" % hip)
