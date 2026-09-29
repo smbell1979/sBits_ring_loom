@@ -45,7 +45,10 @@ body { margin: 0; background: var(--ink); color: var(--fg); font-family: var(--u
 @supports (height: 100dvh) {
   .app { --side: min(calc(100dvh - 32px - 12px - var(--dock)), 62vw); }
 }
-@media (max-width: 1100px) { .app { --dock: 234px; } }
+/* Measured with two-row look cards so nothing in the dock scrolls: 0 px spare at 1920, 1366 and
+   1024 wide. Re-measure if the cards or the toolbar change. */
+@media (max-width: 1600px) { .app { --dock: 218px; } }
+@media (max-width: 1100px) { .app { --dock: 256px; } }
 .stage {
   grid-area: stage;
   position: relative; min-width: 0; min-height: 0;
@@ -167,14 +170,14 @@ summary .sub { text-transform: none; letter-spacing: 0; font-weight: 400; color:
 }
 .cards:empty::before { content: "No looks yet. Press Add current look to start a sequence."; color: var(--muted); font-size: 12.5px; align-self: center; }
 .card {
-  flex: 0 0 330px; display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; align-items: center;
+  flex: 0 0 300px; display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; align-items: center;
   padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2);
 }
 .card.now { border-color: var(--accent); }
 .card.editing { box-shadow: inset 3px 0 0 var(--hot); }
 .thumb { padding: 0; border: 0; background: #000; border-radius: 4px; cursor: pointer; width: 56px; height: 56px; display: block; }
 .thumb canvas { width: 56px; height: 56px; display: block; border-radius: 4px; }
-.card-body { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.card-body { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .card-top { display: flex; gap: 4px; align-items: center; }
 .card-name {
   flex: 1; min-width: 0; background: transparent; border: 1px solid transparent; border-radius: 3px;
@@ -187,11 +190,11 @@ summary .sub { text-transform: none; letter-spacing: 0; font-weight: 400; color:
 }
 .icon:hover { color: var(--fg); border-color: var(--muted); }
 .icon:disabled { opacity: 0.3; cursor: not-allowed; }
-.card-times { display: grid; grid-template-columns: 1fr 1fr 0.85fr 1.35fr; gap: 6px; }
-.card-times label { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.card-times { display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 4px 6px; }
+.card-times label { display: flex; flex-direction: column; gap: 1px; font-size: 9.5px; line-height: 1.2; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
 .card-times input, .card-times select {
   width: 100%; min-width: 0; background: var(--panel); color: var(--fg); border: 1px solid var(--line);
-  border-radius: 3px; padding: 3px 4px; font: 12px var(--mono); font-variant-numeric: tabular-nums;
+  border-radius: 3px; padding: 2px 4px; font: 12px var(--mono); font-variant-numeric: tabular-nums;
   text-transform: none; letter-spacing: 0;
 }
 .card-times select { font-family: var(--ui); }
@@ -777,14 +780,15 @@ function pairUp(na, nb) {
   return { n, ia, ib, wa: ia.map(k => 1 / da[k]), wb: ib.map(k => 1 / db[k]) };
 }
 
-function blendFrames(fa, fb, t) {
+// ringT (optional): each output ring's own progress, for staggered blends.
+function blendFrames(fa, fb, t, ringT) {
   const R = pairUp(fa.rings.length, fb.rings.length);
   const rings = [];
   for (let i = 0; i < R.n; i++) {
-    const a = fa.rings[R.ia[i]], b = fb.rings[R.ib[i]];
+    const a = fa.rings[R.ia[i]], b = fb.rings[R.ib[i]], tr = ringT ? ringT[i] : t;
     const pts = new Float32Array(a.pts.length);
-    for (let j = 0; j < pts.length; j++) pts[j] = a.pts[j] + (b.pts[j] - a.pts[j]) * t;
-    rings.push({ pts, rgb: a.rgb.map((v, c) => lerp(v, b.rgb[c], t)), w: lerp(a.w * R.wa[i], b.w * R.wb[i], t) });
+    for (let j = 0; j < pts.length; j++) pts[j] = a.pts[j] + (b.pts[j] - a.pts[j]) * tr;
+    rings.push({ pts, rgb: a.rgb.map((v, c) => lerp(v, b.rgb[c], tr)), w: lerp(a.w * R.wa[i], b.w * R.wb[i], tr) });
   }
   const la = fa.look, lb = fb.look, C = pairUp(la.copies.length, lb.copies.length);
   const copies = [];
@@ -809,30 +813,63 @@ function blendFrames(fa, fb, t) {
 // sliding points straight across (which squashes rings through the middle): morph the two looks
 // with roll taken out, then turn the result by an angle that travels between the two rolls.
 // Positive angles turn counter-clockwise on screen, as the Roll slider does.
-function rollFrame(f, deg) {
-  if (!deg) return f;
-  const r = rz3(deg);
-  for (const ring of f.rings) {
+//
+// twistFrame turns each ring i about the centre by roll(i) degrees, plus, for a swirl, swirl(i)
+// degrees scaled by 1 / (1 + r^2), r being the point's distance from the centre in units of
+// 0.44 x frame size (a unit ring at zoom 1 is r = 1). So the middle turns most, like a whirlpool.
+// Turning never changes a point's distance from the centre, so the order of the two is irrelevant.
+function twistFrame(f, size, roll, swirl) {
+  const R0 = 0.44 * size;
+  f.rings.forEach((ring, i) => {
+    const a = roll(i), w = swirl ? swirl(i) : 0;
+    if (!a && !w) return;
     const p = ring.pts;
+    let c = Math.cos(a * D2R), s = Math.sin(a * D2R);
     for (let j = 0; j < p.length; j += 2) {
       const x = p[j], y = p[j + 1];
-      p[j] = r[0] * x - r[1] * y;       // screen y points down: world (X, Y) is screen (x, -y)
-      p[j + 1] = -r[3] * x + r[4] * y;
+      if (w) {
+        const rn = Math.hypot(x, y) / R0, deg = a + w / (1 + rn * rn);
+        c = Math.cos(deg * D2R); s = Math.sin(deg * D2R);
+      }
+      p[j] = c * x + s * y;       // rz3 on screen: y points down, so world (X, Y) is screen (x, -y)
+      p[j + 1] = -s * x + c * y;
     }
-  }
+  });
   return f;
 }
+function rollFrame(f, deg) { return deg ? twistFrame(f, 1, () => deg) : f; }
 // The roll part-way through a blend: the short way round, plus the card's extra whole turns
 // (positive: counter-clockwise). Whole turns only, so the blend always ends exactly on B's roll.
 function rollBetween(a, b, e, turns) {
   const d = ((((b - a) % 360) + 540) % 360) - 180;
   return a + (d + 360 * (turns || 0)) * e;
 }
-// Look pa morphing into look pb, e of the way, as the sequence plays it.
-function morphFrame(pa, pb, time, size, M, e, turns) {
+// Each ring's eased progress through a blend at raw time u. Stagger s delays ring i by
+// s * i / (n - 1) of the blend (the last ring goes first when s is negative); every ring still
+// runs the whole way from 0 to 1, in the remaining 1 - s, so the blend still starts and ends
+// exactly on the two looks.
+const MAX_STAGGER = 0.9;  // at 1 each ring would get no time at all to blend, so it would jump
+function ringProgress(u, n, stagger, ease) {
+  const s = clamp(Math.abs(stagger || 0), 0, MAX_STAGGER);
+  if (!s) return null;
+  return Array.from({ length: n }, (_, i) => {
+    const pos = n > 1 ? i / (n - 1) : 0;
+    return ease(clamp((u - s * (stagger < 0 ? 1 - pos : pos)) / (1 - s), 0, 1));
+  });
+}
+// Look pa morphing into look pb at raw blend time u (0-1), shaped by the card `how`: its easing,
+// extra roll turns, stagger and swirl. Rings, colours and roll follow each ring's own progress;
+// the kaleidoscope and drawing settings follow the overall one.
+function morphFrame(pa, pb, time, size, M, u, how = {}) {
+  const ease = (EASES[how.ease] || EASES.linear).f, e = ease(u);
   const flat = p => p.roll ? Object.assign({}, p, { roll: 0 }) : p;
-  const f = blendFrames(computeFrame(flat(pa), time, size, M), computeFrame(flat(pb), time, size, M), e);
-  return rollFrame(f, rollBetween(pa.roll, pb.roll, e, turns));
+  const fa = computeFrame(flat(pa), time, size, M), fb = computeFrame(flat(pb), time, size, M);
+  const ringE = ringProgress(u, Math.max(fa.rings.length, fb.rings.length), how.stagger, ease);
+  const ei = ringE ? i => ringE[i] : () => e;
+  const f = blendFrames(fa, fb, e, ringE);
+  // Swirl peaks mid-blend and is gone as each ring arrives.
+  return twistFrame(f, size, i => rollBetween(pa.roll, pb.roll, ei(i), how.turns),
+    how.swirl ? i => how.swirl * Math.sin(Math.PI * ei(i)) : null);
 }
 
 function renderFrame(f) {
@@ -885,7 +922,7 @@ function currentFrame() {
   const a = seq.cards[at.i].params;
   if (at.u <= 0) return computeFrame(a, seq.tau, size);
   const b = seq.cards[at.j].params, M = Math.max(Math.round(a.res), Math.round(b.res));
-  return morphFrame(a, b, seq.tau, size, M, at.e, seq.cards[at.i].turns);
+  return morphFrame(a, b, seq.tau, size, M, at.u, seq.cards[at.i]);
 }
 function draw() { renderFrame(currentFrame()); }
 
@@ -1066,9 +1103,12 @@ const seqPosEl = document.getElementById("seqPos"), seqPosOut = document.getElem
 const seqStatusEl = document.getElementById("seqStatus"), seqPlayBtn = document.getElementById("seqPlay");
 
 function makeCard(p, name) {
-  return { id: seq.nextId++, name, params: cleanParams(p), hold: 3, blend: 3, ease: "smooth", turns: 0 };
+  return { id: seq.nextId++, name, params: cleanParams(p), hold: 3, blend: 3, ease: "smooth", turns: 0, stagger: 0, swirl: 0 };
 }
-const MAX_TURNS = 10;
+const MAX_TURNS = 10, MAX_SWIRL = 720;
+// Blend-shaping settings: saved only when set, so sequences saved before they existed keep the
+// same content key (and don't suddenly read as "unsaved").
+const BLEND_EXTRAS = ["turns", "stagger", "swirl"];
 function cleanCard(raw) {
   if (!raw || typeof raw !== "object" || !raw.params) return null;
   const c = makeCard(raw.params, typeof raw.name === "string" && raw.name.trim() ? raw.name.slice(0, 40) : "Look");
@@ -1077,12 +1117,15 @@ function cleanCard(raw) {
   if (raw.ease in EASES) c.ease = raw.ease;
   // Whole turns only: a fraction would end the blend off the next look's roll, then snap.
   if (Number.isFinite(+raw.turns)) c.turns = clamp(Math.round(+raw.turns), -MAX_TURNS, MAX_TURNS);
+  if (Number.isFinite(+raw.stagger)) c.stagger = clamp(+raw.stagger, -MAX_STAGGER, MAX_STAGGER);
+  if (Number.isFinite(+raw.swirl)) c.swirl = clamp(+raw.swirl, -MAX_SWIRL, MAX_SWIRL);
   return c;
 }
-// turns is written only when set, so sequences saved before it existed keep the same content key
-// (and don't suddenly read as "unsaved").
-const cardsForSave = () => seq.cards.map(({ name, params: p, hold, blend, ease, turns }) =>
-  turns ? { name, params: p, hold, blend, ease, turns } : { name, params: p, hold, blend, ease });
+const cardsForSave = () => seq.cards.map(c => {
+  const out = { name: c.name, params: c.params, hold: c.hold, blend: c.blend, ease: c.ease };
+  for (const k of BLEND_EXTRAS) if (c[k]) out[k] = c[k];
+  return out;
+});
 
 // Thumbnails are drawn from the card's settings rather than stored as images.
 function drawThumb(p, cv) {
@@ -1180,8 +1223,6 @@ function renderSeq() {
     };
     num("Hold s", "hold");
     num(idx === n - 1 && n > 1 ? "Blend → 1st" : "Blend s", "blend");
-    num("Turns", "turns", -MAX_TURNS, MAX_TURNS, 1,
-      "Extra whole roll turns while this look blends into the next: positive counter-clockwise, negative clockwise. 0 takes the short way round.");
     const el = document.createElement("label");
     el.textContent = "Easing";
     const sel = document.createElement("select");
@@ -1191,6 +1232,13 @@ function renderSeq() {
     sel.addEventListener("input", () => { card.ease = sel.value; persist(); });
     el.append(sel);
     times.append(el);
+    // Second row: how this look blends into the next.
+    num("Turns", "turns", -MAX_TURNS, MAX_TURNS, 1,
+      "Extra whole roll turns while this look blends into the next: positive counter-clockwise, negative clockwise. 0 takes the short way round.");
+    num("Stagger", "stagger", -MAX_STAGGER, MAX_STAGGER, 0.05,
+      "Rings blend one after another instead of together. Positive: first ring first. Negative: last ring first. The number is how much of the blend time the ripple spreads over.");
+    num("Swirl °", "swirl", -MAX_SWIRL, MAX_SWIRL, 15,
+      "Twists the picture like a whirlpool during the blend (the middle turns most), then unwinds as the look arrives. Degrees at the centre, mid-blend; negative twists clockwise.");
 
     body.append(top, times);
     li.append(thumb, body);

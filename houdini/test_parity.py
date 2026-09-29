@@ -73,12 +73,14 @@ def main(path):
         worst_case = max(worst_case, (w, label))
 
     # 3. Blends between flat looks sharing yaw and pitch (where 2D and 3D blending must agree
-    #    exactly), including roll changes with extra whole turns.
+    #    exactly), including roll changes with extra turns, stagger and swirl.
     for b in g["blends"]:
         A = E.look3d(E.clean_params(b["a"]), b["tau"], M)
         B = E.look3d(E.clean_params(b["b"]), b["tau"], M)
-        label = f"blend '{b['name']}' at e={b['e']}"
-        w = compare(label, E.blend3d(A, B, b["e"], b.get("turns", 0)), b["frame"])
+        h = b["how"]
+        label = f"blend '{b['name']}' at u={b['u']}"
+        frame = E.blend3d(A, B, b["u"], h.get("turns", 0), h.get("stagger", 0), h.get("swirl", 0), h.get("ease", "linear"))
+        w = compare(label, frame, b["frame"])
         worst_case = max(worst_case, (w, label))
 
     # 4. Sequence clock.

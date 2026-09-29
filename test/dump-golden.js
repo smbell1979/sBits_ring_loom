@@ -70,14 +70,22 @@ const blendPairs = [
   ["mirror3to2", flat({ gen: "again", rings: 7, mirror: 3, palette: "acid" }), flat({ gen: "cover", rings: 31, mirror: 2, palette: "spectrum" })],
   ["rolled", flat({ gen: "cover", rings: 19, roll: 40 }), flat({ gen: "blend", rings: 25, roll: 40 })],
   ["roll across 180", flat({ gen: "cover", rings: 19, roll: 170 }), flat({ gen: "again", rings: 12, roll: -170 })],
-  ["roll +2 turns", flat({ gen: "blend", rings: 25, roll: -30, mirror: 3 }), flat({ gen: "cover", rings: 19, roll: 60 }), 2],
-  ["roll -1 turn", flat({ gen: "harmono", rings: 12, roll: 90 }), flat({ gen: "blend", rings: 30, roll: 90 }), -1],
+  ["roll +2 turns", flat({ gen: "blend", rings: 25, roll: -30, mirror: 3 }), flat({ gen: "cover", rings: 19, roll: 60 }), { turns: 2 }],
+  ["roll -1 turn", flat({ gen: "harmono", rings: 12, roll: 90 }), flat({ gen: "blend", rings: 30, roll: 90 }), { turns: -1 }],
+  // Stagger with a roll change: each ring must turn on its own clock, on both sides.
+  ["stagger + roll", flat({ gen: "cover", rings: 19, roll: -60 }), flat({ gen: "again", rings: 30, roll: 45 }), { stagger: 0.7, ease: "smooth" }],
+  // Zoom is shared here on purpose: in Houdini it is the camera's, so it changes for all rings at
+  // once, while the page resizes each staggered ring on its own clock.
+  ["stagger reversed", flat({ gen: "blend", rings: 25, mirror: 2, zoom: 1.3 }), flat({ gen: "cover", rings: 19, zoom: 1.3 }), { stagger: -0.4, ease: "in" }],
+  ["swirl", flat({ gen: "again", rings: 24, base: "star", sides: 5 }), flat({ gen: "cover", rings: 19 }), { swirl: 270, ease: "smooth" }],
+  ["swirl zoomed", flat({ gen: "blend", rings: 25, zoom: 1.6 }), flat({ gen: "blend", rings: 25, zoom: 1.6, phase: -90 }), { swirl: -405 }],
+  ["all together", flat({ gen: "harmono", rings: 12, roll: 20, mirror: 4 }), flat({ gen: "cover", rings: 19, roll: -100 }), { turns: 1, stagger: -0.55, swirl: 180, ease: "out" }],
 ];
 const blends = [];
-for (const [name, a, b, turns = 0] of blendPairs) {
-  for (const e of [0, 0.25, 0.5, 0.8, 1]) {
-    const f = t.morphFrame(a, b, 3.1, SIZE, M, e, turns);
-    blends.push({ name, a, b, turns, tau: 3.1, e, frame: frameOut(f) });
+for (const [name, a, b, how = {}] of blendPairs) {
+  for (const u of [0, 0.25, 0.5, 0.8, 1]) {
+    const f = t.morphFrame(a, b, 3.1, SIZE, M, u, how);
+    blends.push({ name, a, b, how, tau: 3.1, u, frame: frameOut(f) });
   }
 }
 

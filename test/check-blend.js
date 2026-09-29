@@ -8,7 +8,7 @@ const hook = "function draw() { renderFrame(currentFrame()); }";
 if (!js.includes(hook)) { console.error("FAIL: draw() hook line not found; update this test"); process.exit(1); }
 // Getters, not values: the hook line sits above some of these declarations, so reading them
 // eagerly would hit the temporal dead zone. By the time the checks run, all exist.
-const exposed = ["computeFrame", "blendFrames", "pairUp", "morphFrame", "rollFrame", "rollBetween", "cleanCard", "seqAt", "seq", "EASES", "defaults", "PRESETS", "START_PARAMS", "cleanParams",
+const exposed = ["computeFrame", "blendFrames", "pairUp", "morphFrame", "rollFrame", "rollBetween", "ringProgress", "cleanCard", "seqAt", "seq", "EASES", "defaults", "PRESETS", "START_PARAMS", "cleanParams",
   "readLibrary", "writeLibrary", "libraryUpsert", "parseSequenceFile", "sequenceFileData", "cardsForSave", "makeCard", "seqDirty", "seqKey",
   "lookFileData", "readLookFile", "params"];
 js = js.replace(hook, hook + "\nglobalThis.__t = {" + exposed.map(n => `get ${n}() { return ${n}; }`).join(", ") + "};");
@@ -111,11 +111,50 @@ setTimeout(() => {
 
   const RA = Object.assign({}, A, { roll: 170 }), RB = Object.assign({}, B, { roll: -170 });
   const plainA = t.computeFrame(RA, time, size, M), plainB = t.computeFrame(RB, time, size, M);
-  for (const turns of [0, 2, -3]) {
-    const m0 = t.morphFrame(RA, RB, time, size, M, 0, turns), m1 = t.morphFrame(RA, RB, time, size, M, 1, turns);
+  const hows = [
+    ["turns 0", { turns: 0 }], ["turns 2", { turns: 2 }], ["turns -3", { turns: -3 }],
+    ["stagger 0.6", { stagger: 0.6, ease: "smooth" }], ["stagger -0.9", { stagger: -0.9, ease: "in" }],
+    ["swirl 360", { swirl: 360, ease: "smooth" }], ["swirl -720 + stagger 0.5 + turns 1", { swirl: -720, stagger: 0.5, turns: 1, ease: "out" }],
+  ];
+  for (const [name, how] of hows) {
+    const m0 = t.morphFrame(RA, RB, time, size, M, 0, how), m1 = t.morphFrame(RA, RB, time, size, M, 1, how);
     const e0 = Math.max(...m0.rings.map((r, i) => maxDiff({ rings: [r] }, { rings: [plainA.rings[R.ia[i]]] })));
     const e1 = Math.max(...m1.rings.map((r, i) => maxDiff({ rings: [r] }, { rings: [plainB.rings[R.ib[i]]] })));
-    check(`turns ${turns}: blend starts on A and ends exactly on B`, e0 < 1e-3 && e1 < 1e-3, `start ${e0.toExponential(1)}, end ${e1.toExponential(1)} px`);
+    check(`${name}: blend starts on A and ends exactly on B`, e0 < 1e-3 && e1 < 1e-3, `start ${e0.toExponential(1)}, end ${e1.toExponential(1)} px`);
+  }
+  // Continuity for every blend style: halving the step size must halve the worst step between
+  // neighbouring moments. A pop or tear is a fixed-size jump, so it would not shrink.
+  for (const [name, how] of hows.slice(3)) {
+    const worstStep = steps => {
+      let w = 0, prev = t.morphFrame(RA, RB, time, size, M, 0, how);
+      for (let s = 1; s <= steps; s++) { const f = t.morphFrame(RA, RB, time, size, M, s / steps, how); w = Math.max(w, maxDiff(f, prev)); prev = f; }
+      return w;
+    };
+    const w1 = worstStep(300), w2 = worstStep(600);
+    check(`${name}: no jumps (worst step halves when steps double)`, w1 / w2 > 1.7 && w1 / w2 < 2.3, `${w1.toFixed(3)} -> ${w2.toFixed(3)} px, ratio ${(w1 / w2).toFixed(2)}`);
+  }
+  // Stagger order: part-way through, the leading ring is further along than the trailing one.
+  {
+    const lin = t.EASES.linear.f, fwd = t.ringProgress(0.4, 10, 0.5, lin), back = t.ringProgress(0.4, 10, -0.5, lin);
+    check("stagger + runs first ring first, - runs last ring first", fwd[0] > fwd[9] && back[9] > back[0] && Math.abs(fwd[0] - back[9]) < 1e-12,
+      `+: ${fwd[0].toFixed(2)}..${fwd[9].toFixed(2)}, -: ${back[0].toFixed(2)}..${back[9].toFixed(2)}`);
+    check("every staggered ring runs the full 0 -> 1", [0.3, 0.9].every(s => t.ringProgress(0, 7, s, lin).every(v => v === 0) && t.ringProgress(1, 7, s, lin).every(v => v === 1)));
+    check("stagger is capped below 1 (1 would make rings jump)", t.cleanCard({ params: A, stagger: 1 }).stagger === 0.9 && t.ringProgress(0.5, 5, 5, lin) !== null);
+  }
+  // Swirl: the middle turns more than the edge, and it is gone at both ends (checked above).
+  {
+    const one = Object.assign({}, A, { roll: 0, mirror: 1, rings: 2, gen: "cover" });
+    const plain = t.computeFrame(one, 0, size, M), sw = t.morphFrame(one, one, 0, size, M, 0.5, { swirl: 90 });
+    const ang = (p, q) => { const d = Math.atan2(-q[1], q[0]) - Math.atan2(-p[1], p[0]); return ((d / D2R + 540) % 360) - 180; };
+    const pts = plain.rings[0].pts, spts = sw.rings[0].pts;
+    const rs = Array.from({ length: pts.length / 2 }, (_, j) => Math.hypot(pts[2 * j], pts[2 * j + 1]) / (0.44 * size));
+    const jMin = rs.indexOf(Math.min(...rs)), jMax = rs.indexOf(Math.max(...rs));
+    const aMin = ang([pts[2 * jMin], pts[2 * jMin + 1]], [spts[2 * jMin], spts[2 * jMin + 1]]);
+    const aMax = ang([pts[2 * jMax], pts[2 * jMax + 1]], [spts[2 * jMax], spts[2 * jMax + 1]]);
+    const want = r => 90 / (1 + r * r);
+    check("swirl turns each point by the whirlpool angle (more near the middle)",
+      Math.abs(aMin - want(rs[jMin])) < 1e-3 && Math.abs(aMax - want(rs[jMax])) < 1e-3 && aMin > aMax,
+      `r ${rs[jMin].toFixed(2)}: ${aMin.toFixed(2)} deg, r ${rs[jMax].toFixed(2)}: ${aMax.toFixed(2)} deg`);
   }
   check("170 -> -170 goes the short way (through 180, not 0)", Math.abs(t.rollBetween(170, -170, 0.5, 0) - 180) < 1e-9);
   // Needs the other direction too: "always counter-clockwise" would pass the check above.
@@ -125,8 +164,8 @@ setTimeout(() => {
   check("-1 turn goes clockwise the long way", Math.abs(t.rollBetween(170, -170, 1, -1) - (170 + 20 - 360)) < 1e-9);
   // No pops with turns either: the step between neighbouring moments stays even.
   {
-    const steps = 400; let worstR = 0, prevR = t.morphFrame(RA, RB, time, size, M, 0, 2);
-    for (let s = 1; s <= steps; s++) { const f = t.morphFrame(RA, RB, time, size, M, s / steps, 2); worstR = Math.max(worstR, maxDiff(f, prevR)); prevR = f; }
+    const steps = 400; let worstR = 0, prevR = t.morphFrame(RA, RB, time, size, M, 0, { turns: 2 });
+    for (let s = 1; s <= steps; s++) { const f = t.morphFrame(RA, RB, time, size, M, s / steps, { turns: 2 }); worstR = Math.max(worstR, maxDiff(f, prevR)); prevR = f; }
     const radius = Math.max(...plainA.rings.concat(plainB.rings).flatMap(r => Array.from({ length: r.pts.length / 2 }, (_, j) => Math.hypot(r.pts[2 * j], r.pts[2 * j + 1]))));
     const bound = (radius * (740 * D2R) + total) / steps;  // arc length of the turn + straight morph, split evenly
     check("no jumps inside a blend with 2 extra turns", worstR <= bound * 1.01, `worst step ${worstR.toFixed(3)} px, bound ${bound.toFixed(3)} px`);
@@ -150,13 +189,18 @@ setTimeout(() => {
   // ---- saving: files and the in-browser library ----
   t.seq.cards = [t.makeCard(A, "First"), t.makeCard(B, "Second")];
   t.seq.cards[0].hold = 1.5; t.seq.cards[1].blend = 7; t.seq.cards[1].ease = "out"; t.seq.cards[1].turns = -2;
+  t.seq.cards[0].stagger = -0.35; t.seq.cards[1].swirl = 195;
   t.seq.name = "Round trip";
   const before = JSON.stringify(t.cardsForSave());
-  check("turns is saved when set and left out when 0", !("turns" in t.cardsForSave()[0]) && t.cardsForSave()[1].turns === -2);
+  const saved0 = t.cardsForSave()[0], saved1 = t.cardsForSave()[1];
+  check("blend extras are saved when set and left out when 0",
+    !("turns" in saved0) && !("swirl" in saved0) && saved0.stagger === -0.35 && saved1.turns === -2 && saved1.swirl === 195 && !("stagger" in saved1));
   const parsed = t.parseSequenceFile(t.sequenceFileData(), "fallback");
-  const after = JSON.stringify(parsed.cards.map(({ name, params, hold, blend, ease, turns }) =>
-    turns ? { name, params, hold, blend, ease, turns } : { name, params, hold, blend, ease }));
-  check("file round trip keeps every look, time, easing and turn count", before === after && parsed.name === "Round trip" && parsed.skipped === 0);
+  const hold = t.seq.cards;
+  t.seq.cards = parsed.cards;
+  const after = JSON.stringify(t.cardsForSave());
+  t.seq.cards = hold;
+  check("file round trip keeps every look, time, easing, turns, stagger and swirl", before === after && parsed.name === "Round trip" && parsed.skipped === 0);
 
   const code = JSON.stringify({ ringLoom: 1, params: A, sequence: t.cardsForSave() });
   check("a pasted settings code opens as a sequence", t.parseSequenceFile(code, "x").cards.length === 2);

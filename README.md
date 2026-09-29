@@ -17,11 +17,18 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
   generator, base-shape and ring-count changes read as motion. When ring or kaleidoscope counts
   differ, the extra copies split out of their nearest neighbour instead of fading in; the only
   setting that switches outright is Light blend, at the midpoint. A change of View roll turns the
-  whole picture the short way round; a card's **Turns** adds whole extra turns to its blend into
-  the next look (positive counter-clockwise, negative clockwise).
+  whole picture the short way round. Three per-card settings shape the blend into the next look:
+  - **Turns** adds whole extra roll turns (positive counter-clockwise, negative clockwise).
+  - **Stagger** (-0.9 to 0.9) blends the rings one after another, so the change ripples through
+    them: positive starts with the first ring, negative with the last. The number is how much of
+    the blend time the ripple spreads over; each ring still runs its whole morph.
+  - **Swirl** (degrees) twists the picture like a whirlpool mid-blend, the middle turning most,
+    and unwinds exactly as the look arrives. It is a twist of the whole picture rather than each
+    point taking its own arc, because points whose start and end lie opposite each other across
+    the centre could pick different ways round and tear a ring apart.
 - **Saved sequences:** name a sequence and Save it to a list in this browser, then Load,
-  re-save or delete entries. **Save to file** writes `name.ringloom.json` (every look, hold, blend
-  and easing) and **Open file** loads one back on any computer; it also accepts a settings code.
+  re-save or delete entries. **Save to file** writes `name.ringloom.json` (every look, hold, blend,
+  easing, turns, stagger and swirl) and **Open file** loads one back on any computer; it also accepts a settings code.
   Anything that would replace unsaved changes asks for a second press first.
 - Controls that do nothing in the current combination are dimmed, with the reason on hover.
 - **Save** a PNG frame, an SVG of the current lines, or a video clip, including exactly one loop
@@ -52,9 +59,11 @@ a render setup.
 The view is baked into the geometry (the page's yaw, pitch, roll, rotation and spin), and the camera sits
 on +Z at the page's perspective distance with a focal that reproduces its zoom. You can still
 orbit freely in the viewport. Blends happen in 3D: the rings blend, and the view blends separately,
-taking the short way round (plus the card's extra roll turns). The page blends flat pictures and
-then turns them by the blended roll, so the two match exactly when both looks share yaw and pitch;
-roll may differ.
+taking the short way round (plus the card's extra roll turns); stagger and swirl work as on the
+page. The page blends flat pictures and then turns them by the blended roll, so the two match
+exactly when both looks share yaw, pitch and zoom; roll may differ. (With stagger, the page resizes
+each ring on its own clock, while in Houdini zoom belongs to the camera and changes for all rings
+at once.)
 
 ### Karma render
 
@@ -96,7 +105,7 @@ A saved `.hip` carries its own copy of the engine in the Python SOP, so it works
 but does not pick up changes on its own. `update_hip_code.py` swaps the new code into every Ring
 Loom SOP in the scenes you give it and leaves the rest of each scene alone, the render setup
 included. It saves a scene only after that scene's SOP output matches the engine mid-way through
-a blend between two rolled, tilted looks with an extra roll turn. Use it on your own scenes too:
+a blend between two rolled, tilted looks with an extra roll turn, stagger and swirl. Use it on your own scenes too:
 
 ```bash
 hython houdini/update_hip_code.py path/to/your_scene.hip
@@ -139,9 +148,9 @@ node test/check-blend.js src/ring-loom.html
 
 `test/check-blend.js` runs the page script under a stub DOM and checks the morph guarantees: a
 blend starts exactly on look A and ends exactly on look B, split rings share brightness so nothing
-flashes, and no point jumps between neighbouring steps, including blends that roll the view with
-extra turns (and that turning a finished frame equals rendering it rolled, which the roll blend
-relies on). It also checks saving: files round-trip
+flashes, and no point jumps between neighbouring steps, including blends with extra roll turns,
+stagger and swirl (and that turning a finished frame equals rendering it rolled, which the roll
+blend relies on). It also checks saving: files round-trip
 exactly, unreadable looks are counted rather than dropped, and blocked or silently dropped browser
 storage is reported as a failure instead of an empty list.
 

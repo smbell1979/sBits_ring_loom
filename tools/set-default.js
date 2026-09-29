@@ -70,7 +70,8 @@ function describe(shown) {
   const total = seq.cards.reduce((s, c) => s + c.hold + c.blend, 0);
   const lines = [`"${seq.name}": ${seq.cards.length} look${seq.cards.length === 1 ? "" : "s"}` +
     (seq.cards.length > 1 ? `, ${total.toFixed(1)} s loop, ${seq.playing ? "plays on first visit" : "not playing until Play is pressed"}` : ", shown as a single look")];
-  seq.cards.forEach((c, i) => lines.push(`  ${String(i + 1).padStart(2)}. ${c.name.padEnd(24)} ${c.params.gen.padEnd(8)} hold ${c.hold}  blend ${c.blend}  ${c.ease}` + (c.turns ? `  turns ${c.turns > 0 ? "+" : ""}${c.turns}` : "")));
+  seq.cards.forEach((c, i) => lines.push(`  ${String(i + 1).padStart(2)}. ${c.name.padEnd(24)} ${c.params.gen.padEnd(8)} hold ${c.hold}  blend ${c.blend}  ${c.ease}` +
+    (c.turns ? `  turns ${c.turns > 0 ? "+" : ""}${c.turns}` : "") + (c.stagger ? `  stagger ${c.stagger}` : "") + (c.swirl ? `  swirl ${c.swirl}°` : "")));
   return lines.join("\n");
 }
 
@@ -86,7 +87,7 @@ function compare(raw, shown, play) {
     if (!c) return;
     const name = typeof rc.name === "string" && rc.name.trim() ? rc.name.slice(0, 40) : "Look";
     if (c.name !== name) problems.push(`${at}: name "${rc.name}" shows as "${c.name}"`);
-    for (const [k, def] of [["hold", 3], ["blend", 3], ["turns", 0]]) {
+    for (const [k, def] of [["hold", 3], ["blend", 3], ["turns", 0], ["stagger", 0], ["swirl", 0]]) {
       const want = rc[k] === undefined ? def : +rc[k];
       if (c[k] !== want) problems.push(`${at}: ${k} ${rc[k]} shows as ${c[k]}`);
     }
@@ -143,7 +144,7 @@ if (problems.length) {
   if (problems.length > 30) console.error(`  ... and ${problems.length - 30} more`);
   process.exit(1);
 }
-if (raw) console.log(`\nChecked against the file: ${raw.sequence.length === 1 ? "the look and" : `all ${raw.sequence.length} looks, their times, easing, turns and`} every setting match.`);
+if (raw) console.log(`\nChecked against the file: ${raw.sequence.length === 1 ? "the look and" : `all ${raw.sequence.length} looks, their times, easing, turns, stagger, swirl and`} every setting match.`);
 
 if (!apply) {
   console.log(`Dry run: nothing written. Add --apply to write it into ${path.relative(process.cwd(), PAGE)}.`);

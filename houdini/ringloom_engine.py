@@ -387,32 +387,80 @@ def _shortest(a, b, t):
     return a + d * t
 
 
-def blend3d(A, B, t, turns=0):
-    """A morphing into B, t of the way. turns: the card's extra whole roll turns (page rollBetween)."""
+def ring_progress(u, n, stagger, ease):
+    """Each ring's eased progress through a blend (page ringProgress). u is the raw 0-1 time.
+
+    Stagger s delays ring i by s * i / (n - 1) of the blend (the last ring first when negative),
+    and every ring still runs 0 -> 1, over the remaining 1 - s.
+    """
+    f = EASES[ease]
+    s = clamp(abs(stagger), 0, MAX_STAGGER)
+    if not s:
+        return np.full(n, f(u))
+    out = np.empty(n)
+    for i in range(n):
+        pos = i / (n - 1) if n > 1 else 0.0
+        if stagger < 0:
+            pos = 1 - pos
+        out[i] = f(clamp((u - s * pos) / (1 - s), 0, 1))
+    return out
+
+
+def blend3d(A, B, u, turns=0, stagger=0.0, swirl=0.0, ease="linear"):
+    """A morphing into B at raw blend time u, with the card's ease, extra roll turns, stagger and
+    swirl (page morphFrame). Rings, colours and roll follow each ring's own progress; the view
+    angles and drawing settings follow the overall eased progress."""
+    t = EASES[ease](u)
     n, ia, ib, wa, wb = pair_up(len(A["w"]), len(B["w"]))
+    te = ring_progress(u, n, stagger, ease)
     pa, pb = A["pre"][ia], B["pre"][ib]
-    pre = pa + (pb - pa) * t
-    rgb = A["rgb"][ia] + (B["rgb"][ib] - A["rgb"][ia]) * t
-    w = np.array([lerp(A["w"][ia[i]] * wa[i], B["w"][ib[i]] * wb[i], t) for i in range(n)])
+    pre = pa + (pb - pa) * te[:, None, None]
+    rgb = A["rgb"][ia] + (B["rgb"][ib] - A["rgb"][ia]) * te[:, None]
+    w = np.array([lerp(A["w"][ia[i]] * wa[i], B["w"][ib[i]] * wb[i], te[i]) for i in range(n)])
     cn, cia, cib, cwa, cwb = pair_up(len(A["copies"]), len(B["copies"]))
     copies = [(lerp(A["copies"][cia[i]][0], B["copies"][cib[i]][0], t),
                lerp(A["copies"][cia[i]][1] * cwa[i], B["copies"][cib[i]][1] * cwb[i], t)) for i in range(cn)]
     va, vb = A["view"], B["view"]
     view = {"pitch": lerp(va["pitch"], vb["pitch"], t), "yaw": _shortest(va["yaw"], vb["yaw"], t),
-            "roll": _shortest(va["roll"], vb["roll"], t) + 360 * turns * t,
+            # Per ring, so staggered rings turn into place one after another.
+            "roll": _shortest(va["roll"], vb["roll"], te) + 360 * turns * te,
             "rot": _shortest(va["rot"], vb["rot"], t), "D": lerp(va["D"], vb["D"], t), "zoom": lerp(va["zoom"], vb["zoom"], t)}
     la, lb = A["look"], B["look"]
     look = {k: lerp(la[k], lb[k], t) for k in ("width", "alpha", "glow", "trails")}
     look["additive"] = la["additive"] if t < 0.5 else lb["additive"]
     look["bg"] = [lerp(la["bg"][c], lb["bg"][c], t) for c in range(3)]
-    return {"pre": pre, "rgb": rgb, "w": w, "view": view, "copies": copies, "look": look}
+    frame = {"pre": pre, "rgb": rgb, "w": w, "view": view, "copies": copies, "look": look}
+    if swirl:
+        # Peak twist mid-blend, back to none as each ring arrives.
+        frame["swirl"] = swirl * np.sin(math.pi * te)
+    return frame
 
 
 def apply_view(frame):
-    """Rings rotated into the page's view: world points a camera on +Z sees as the page does."""
+    """Rings rotated into the page's view: world points a camera on +Z sees as the page does.
+
+    Roll (one angle, or one per ring during a staggered blend) and a blend's swirl both turn points
+    about the camera axis, last, as the page turns its finished picture. The swirl angle falls off
+    with the point's distance from the centre as the page measures it on screen (in units of
+    0.44 x frame size), so perspective and zoom are included.
+    """
     v = frame["view"]
-    V = np.array(view_matrix(v["pitch"], v["yaw"], v["rot"], v["roll"])).reshape(3, 3)
-    return frame["pre"] @ V.T
+    V = np.array(view_matrix(v["pitch"], v["yaw"], v["rot"], 0.0)).reshape(3, 3)
+    P = frame["pre"] @ V.T
+    roll = np.broadcast_to(np.asarray(v["roll"], dtype=float), P.shape[:1])
+    amp = frame.get("swirl")
+    if amp is None and not np.any(roll):
+        return P
+    deg = np.repeat(roll[:, None], P.shape[1], axis=1)
+    if amp is not None:
+        f = v["D"] / np.maximum(0.25, v["D"] - P[..., 2])
+        rn = np.hypot(P[..., 0], P[..., 1]) * f * v["zoom"]
+        deg = deg + amp[:, None] / (1 + rn * rn)
+    c, s = np.cos(deg * D2R), np.sin(deg * D2R)
+    out = P.copy()
+    out[..., 0] = c * P[..., 0] - s * P[..., 1]
+    out[..., 1] = s * P[..., 0] + c * P[..., 1]
+    return out
 
 
 def project(frame, size):
@@ -434,6 +482,8 @@ EASES = {
 
 
 MAX_TURNS = 10
+MAX_STAGGER = 0.9   # at 1 each ring would get no time at all to blend, so it would jump
+MAX_SWIRL = 720
 
 
 def clean_card(raw):
@@ -441,13 +491,22 @@ def clean_card(raw):
         return None
     name = raw.get("name")
     card = {"name": name[:40] if isinstance(name, str) and name.strip() else "Look",
-            "params": clean_params(raw["params"]), "hold": 3.0, "blend": 3.0, "ease": "smooth", "turns": 0}
-    for key in ("hold", "blend", "turns"):
+            "params": clean_params(raw["params"]), "hold": 3.0, "blend": 3.0, "ease": "smooth",
+            "turns": 0, "stagger": 0.0, "swirl": 0.0}
+    for key in ("hold", "blend", "turns", "stagger", "swirl"):
         try:
             v = float(raw.get(key))
-            if math.isfinite(v):
+            if not math.isfinite(v):
+                continue
+            if key == "turns":
                 # Whole turns only, as on the page, so a blend always lands on the next look's roll.
-                card[key] = clamp(jsround(v), -MAX_TURNS, MAX_TURNS) if key == "turns" else clamp(v, 0, 60)
+                card[key] = clamp(jsround(v), -MAX_TURNS, MAX_TURNS)
+            elif key == "stagger":
+                card[key] = clamp(v, -MAX_STAGGER, MAX_STAGGER)
+            elif key == "swirl":
+                card[key] = clamp(v, -MAX_SWIRL, MAX_SWIRL)
+            else:
+                card[key] = clamp(v, 0, 60)
         except (TypeError, ValueError):
             pass
     if raw.get("ease") in EASES:
@@ -539,7 +598,8 @@ def evaluate(cards, clock, M=None):
         return look3d(a["params"], tau, M), a["name"]
     b = cards[at["j"]]
     m = M or max(jsround(a["params"]["res"]), jsround(b["params"]["res"]))
-    return (blend3d(look3d(a["params"], tau, m), look3d(b["params"], tau, m), at["e"], a["turns"]),
+    return (blend3d(look3d(a["params"], tau, m), look3d(b["params"], tau, m), at["u"],
+                    a["turns"], a["stagger"], a["swirl"], a["ease"]),
             "%s -> %s" % (a["name"], b["name"]))
 
 
