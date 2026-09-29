@@ -92,6 +92,22 @@ hython houdini/make_example_hip.py
 repo. It saves only after checking the SOP's geometry against the engine and the camera against
 the page's projection.
 
+### Karma render
+
+The example scene also has a Karma render in `/stage`: `ringloom_scene` imports the curves and
+camera, `ringloom_mat` gives them a MaterialX Surface Unlit that emits the curve colour times its
+alpha with full transmission (so crossing lines add their light, like the page's light blend),
+`ringloom_glow` is an Image Filter with a Glow COP whose size follows the sequence's `glow` value,
+and `ringloom_render` writes `examples/render/ringloom.####.exr` at the Render Resolution.
+
+Two things to know. The camera's focus distance is tied to its distance and Karma's depth of field
+is off; the camera sits about 42 units back for the page's near-flat view, so a default focus of 5
+blurs everything. And because the lines fully transmit, the EXR's alpha is 0: the image is meant
+to go over black, as on the page.
+
+This render setup was built in the open scene, not by `make_example_hip.py`, so re-running that
+script produces a scene without it.
+
 ## Layout
 
 - `src/ring-loom.html` - the page. This is the only file to edit.

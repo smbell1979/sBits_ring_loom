@@ -13,3 +13,6 @@ __pycache__/
 # Render output and Houdini autosave backups
 examples/render/
 examples/backup/
+
+# Karma renders from the example scene
+examples/render/
