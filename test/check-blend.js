@@ -9,7 +9,8 @@ if (!js.includes(hook)) { console.error("FAIL: draw() hook line not found; updat
 // Getters, not values: the hook line sits above some of these declarations, so reading them
 // eagerly would hit the temporal dead zone. By the time the checks run, all exist.
 const exposed = ["computeFrame", "blendFrames", "pairUp", "seqAt", "seq", "EASES", "defaults", "PRESETS", "START_PARAMS", "cleanParams",
-  "readLibrary", "writeLibrary", "libraryUpsert", "parseSequenceFile", "sequenceFileData", "cardsForSave", "makeCard", "seqDirty", "seqKey"];
+  "readLibrary", "writeLibrary", "libraryUpsert", "parseSequenceFile", "sequenceFileData", "cardsForSave", "makeCard", "seqDirty", "seqKey",
+  "lookFileData", "readLookFile", "params"];
 js = js.replace(hook, hook + "\nglobalThis.__t = {" + exposed.map(n => `get ${n}() { return ${n}; }`).join(", ") + "};");
 
 // In-memory localStorage whose behaviour the library tests can switch: normal, throwing
@@ -140,6 +141,16 @@ setTimeout(() => {
   storageMode = "drop";
   check("a write the browser silently drops reports failure", t.writeLibrary([entry("Lost")]) === false);
   storageMode = "ok";
+
+  // Look files: one look, reopened exactly, and still readable as a one-look sequence.
+  const lookText = t.lookFileData();
+  const opened = t.readLookFile(lookText);
+  check("look file reopens as the exact look on screen", opened && JSON.stringify(opened.params) === JSON.stringify(t.cleanParams(t.params)));
+  check("a sequence file is not mistaken for a look file", t.readLookFile(t.sequenceFileData()) === null);
+  const asSeq = t.parseSequenceFile(lookText, "x");
+  check("look file also reads as a one-look sequence (Houdini path)", asSeq.cards.length === 1 &&
+    JSON.stringify(asSeq.cards[0].params) === JSON.stringify(opened.params));
+  if (process.env.LOOK_OUT) fs.writeFileSync(process.env.LOOK_OUT, lookText);
 
   t.seq.savedKey = t.seqKey();
   const clean = !t.seqDirty();

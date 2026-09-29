@@ -250,6 +250,7 @@ textarea {
         <div class="btns">
           <button class="btn" id="savePng" type="button" disabled>PNG frame</button>
           <button class="btn" id="saveSvg" type="button" disabled>SVG lines</button>
+          <button class="btn" id="saveLook" type="button" disabled title="Saves just the look on screen as a .ringloom.json. Your sequence isn't changed.">Look file</button>
         </div>
         <div class="btns">
           <select id="recLen" aria-label="Clip length">
@@ -1220,6 +1221,25 @@ function parseSequenceFile(text, fallbackName) {
 const sequenceFileData = () =>
   JSON.stringify({ ringLoom: 1, kind: "sequence", name: seq.name || "Untitled", savedAt: new Date().toISOString(), sequence: cardsForSave() }, null, 1);
 const slug = s => (s || "sequence").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "sequence";
+// One look as a file. Carries "params" (read by Open file here) and a one-card "sequence" (read by
+// the Houdini importer, which plays a one-look file continuously).
+const lookName = () => activePreset || `Seed ${seed}`;
+function lookFileData() {
+  const name = lookName();
+  return JSON.stringify({
+    ringLoom: 1, kind: "look", name, savedAt: new Date().toISOString(), params,
+    sequence: [{ name, params, hold: 3, blend: 3, ease: "smooth" }],
+  }, null, 1);
+}
+// A look file opens into the controls; the sequence is left alone. Returns null for other files.
+function readLookFile(text) {
+  let obj;
+  try { obj = JSON.parse(text); } catch { return null; }
+  if (!obj || obj.kind !== "look") return null;
+  const p = obj.params || (Array.isArray(obj.sequence) && obj.sequence[0] && obj.sequence[0].params);
+  if (!p || typeof p !== "object") throw new Error("That look file has no settings in it.");
+  return { name: typeof obj.name === "string" && obj.name.trim() ? obj.name.trim().slice(0, 60) : "Look", params: cleanParams(p) };
+}
 
 const libListEl = document.getElementById("libList"), libStatusEl = document.getElementById("libStatus");
 const seqNameEl = document.getElementById("seqName");
@@ -1354,7 +1374,7 @@ document.getElementById("fileSave").addEventListener("click", () => {
 });
 const fileIn = document.getElementById("fileIn");
 document.getElementById("fileOpen").addEventListener("click", () => {
-  if (seqDirty() && !arm("open", "The current sequence has unsaved changes. Press Open file again to replace it.")) return;
+  if (seqDirty() && !arm("open", "The current sequence has unsaved changes, and opening a sequence file replaces it (a look file doesn't). Press Open file again to continue.")) return;
   fileIn.value = "";
   fileIn.click();
 });
@@ -1362,7 +1382,14 @@ fileIn.addEventListener("change", async () => {
   const file = fileIn.files && fileIn.files[0];
   if (!file) return;
   try {
-    const { cards, name, skipped } = parseSequenceFile(await file.text(), file.name.replace(/\.ringloom\.json$|\.json$/i, ""));
+    const text = await file.text();
+    const look = readLookFile(text);
+    if (look) {
+      applyParams(look.params);
+      libStatusEl.textContent = `Opened the look "${look.name}" into the controls. Your sequence is unchanged; press Add current look to put it in.`;
+      return;
+    }
+    const { cards, name, skipped } = parseSequenceFile(text, file.name.replace(/\.ringloom\.json$|\.json$/i, ""));
     useSequence(cards, name, `Opened "${name}" from ${file.name}.` +
       (skipped ? ` ${skipped} look${skipped === 1 ? "" : "s"} couldn't be read and were skipped.` : "") +
       " Press Save to keep it in this browser too.");
@@ -1452,6 +1479,9 @@ document.getElementById("saveSvg").addEventListener("click", () => {
   svg += `</g></svg>`;
   offer(`ring-loom-${stamp()}.svg`, svg);
 });
+document.getElementById("saveLook").addEventListener("click", () => {
+  offer(`${slug(lookName())}.ringloom.json`, lookFileData());
+});
 let recording = false;
 document.getElementById("saveVid").addEventListener("click", () => {
   if (recording || !REC_MIME) return;
@@ -1507,6 +1537,7 @@ async function initDownloads() {
   }
   saveBtns[0].disabled = false;
   saveBtns[1].disabled = false;
+  document.getElementById("saveLook").disabled = false;
   document.getElementById("fileSave").disabled = false;
   saveBtns[2].disabled = !REC_MIME;
   const how = downloads === browserDownloads ? "Files go to your downloads folder." : "Each save asks you to confirm.";
