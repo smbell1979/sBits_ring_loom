@@ -106,6 +106,7 @@ SCHEMA = [
     ("orbitR", "range", 0.38, 0, 0.9),
     ("ringR", "range", 0.5, 0.1, 1),
     ("loops", "range", 1, 0.1, 4),
+    ("closed", "toggle", False),
     ("tilt", "range", 75, 0, 90),
     ("speed", "range", 1, 0, 3),
     ("drift", "range", 0.3, 0, 2),
@@ -342,7 +343,8 @@ def linear_mats(p, N, time):
             psi += p["twist"] * u + p["drift"] * 25 * math.sin(time * 0.6 + u * TAU)
             mats.append(mat2(rot2(psi), diag2(a * COVER_SCALE, b * COVER_SCALE)))
     elif p["gen"] == "again":
-        turn = p["turn"] + p["drift"] * 3 * math.sin(time * 0.7)
+        # One full turn: 360 / N per ring, held exact (page linearMats).
+        turn = 360 / N if p["closed"] else p["turn"] + p["drift"] * 3 * math.sin(time * 0.7)
         A = mat2(rot2(turn), diag2(p["stretchA"], p["squashA"]))
         M = (1, 0, 0, 1)
         for _ in range(N):
@@ -413,16 +415,18 @@ def ring_world(p, k, N, M, time, mats):
         x, y, z = m[0] * px + m[1] * py, m[2] * px + m[3] * py, np.zeros_like(px)
     elif g == "sphere":
         a = p["alpha"] * D2R
-        R = rot_axis([math.sin(a), 0, math.cos(a)], (-p["sweep"] * u - p["drift"] * 18 * time) * D2R)
+        sweep_k = 360 * k / N if p["closed"] else p["sweep"] * u  # One full turn (page ringPre)
+        R = rot_axis([math.sin(a), 0, math.cos(a)], (-sweep_k - p["drift"] * 18 * time) * D2R)
         x, y, z = R[0] * px + R[1] * py, R[3] * px + R[4] * py, R[6] * px + R[7] * py
     elif g == "harmono":
         A = 1 - p["decay"] * u
-        hpx = TAU * p["phaseStep"] * k + p["drift"] * time * 0.6
+        hpx = TAU * (k / N if p["closed"] else p["phaseStep"] * k) + p["drift"] * time * 0.6
         x = A * np.sin(p["fx"] * th + hpx) * rr
         y = A * np.sin(p["fy"] * th + math.pi / 2) * rr
         z = np.zeros_like(x)
     else:  # slinky
-        ph = TAU * p["loops"] * u + p["drift"] * time * 0.4
+        # One full turn: spaced 360/N, so the last ring stops a gap short of the first (page ringPre).
+        ph = (TAU * k / N if p["closed"] else TAU * p["loops"] * u) + p["drift"] * time * 0.4
         tl = p["tilt"] * D2R
         cc, ss = math.cos(ph), math.sin(ph)
         e1 = (cc, ss, 0)

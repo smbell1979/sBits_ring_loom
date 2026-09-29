@@ -46,7 +46,12 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
   Anything that would replace unsaved changes asks for a second press first.
 - **Colour preview:** the strip under the Colour menu shows every ring's colour as drawn, first
   ring on the left, from the same colour code the rings use, so the palette, Spread, ring count
-  and Custom A/B all show exactly; it moves with Cycle.
+  and Custom A/B all show exactly; it moves with Cycle. The grey strip under it is each ring's
+  brightness from Ring fade.
+- **One full turn** (Slinky, Sphere spin, Transform again, Harmonograph): the rings' sweep becomes
+  exactly one cycle, spaced evenly by the ring count, so the last ring never lands on the first
+  (Turns, Sweep, Turn / ring and Phase / ring space rings first-to-last inclusive, so at exactly
+  one cycle the last ring doubled the first). Add rings and the spacing adjusts.
 - **Ring fade** dims the rings along a ramp: the amount (0 off, 1 fades the far end out), a
   **Fade curve** that works like a gamma (1 straight; above 1 the fade comes late and steep, below
   1 early), and which rings fade: the last, the first, both ends, or the middle. It sets each

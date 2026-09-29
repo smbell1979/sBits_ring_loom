@@ -8,7 +8,7 @@ const hook = "function draw() { renderFrame(currentFrame()); }";
 if (!js.includes(hook)) { console.error("FAIL: draw() hook line not found; update this test"); process.exit(1); }
 // Getters, not values: the hook line sits above some of these declarations, so reading them
 // eagerly would hit the temporal dead zone. By the time the checks run, all exist.
-const exposed = ["computeFrame", "blendFrames", "pairUp", "morphFrame", "rollFrame", "rollBetween", "rotBetween", "blendStartTau", "ringMatches", "ringProgress", "cleanCard", "seqAt", "seq", "EASES", "defaults", "PRESETS", "START_PARAMS", "cleanParams",
+const exposed = ["computeFrame", "blendFrames", "pairUp", "morphFrame", "rollFrame", "rollBetween", "rotBetween", "blendStartTau", "ringMatches", "look3d", "ringProgress", "cleanCard", "seqAt", "seq", "EASES", "defaults", "PRESETS", "START_PARAMS", "cleanParams",
   "readLibrary", "writeLibrary", "libraryUpsert", "parseSequenceFile", "sequenceFileData", "cardsForSave", "makeCard", "seqDirty", "seqKey",
   "lookFileData", "readLookFile", "params", "fmt", "readTyped", "BY_ID", "rgbToOklab", "oklabToRgb", "oklabToLinear", "mixColour", "hexToRgb"];
 js = js.replace(hook, hook + "\nglobalThis.__t = {" + exposed.map(n => `get ${n}() { return ${n}; }`).join(", ") + "};");
@@ -326,6 +326,34 @@ setTimeout(() => {
     const ends = ws({ fade: 0.8, fadeFrom: "ends" }), middle = ws({ fade: 0.8, fadeFrom: "middle" });
     check("both ends: middle ring full, end rings dimmed by the fade amount", ends[5] === 1 && Math.abs(ends[0] - 0.2) < 1e-12 && Math.abs(ends[10] - 0.2) < 1e-12);
     check("middle: end rings full, middle ring dimmed by the fade amount", middle[0] === 1 && middle[10] === 1 && Math.abs(middle[5] - 0.2) < 1e-12);
+  }
+
+  // ---- one full turn ----
+  {
+    // Gap between neighbouring rings: the largest point-for-point distance, ring k to ring k+1, and
+    // last to first, measured in 3D before the view (Sphere spin turns rings about a tilted axis,
+    // so equal 3D steps look unequal once flattened to the screen). Settings where rings don't
+    // shrink, so only the sweep separates them. Units: ring radii, reported x100.
+    const gaps = p => {
+      const f = t.look3d(Object.assign(t.defaults(), { drift: 0, wobble: 0 }, p), 0, 360);
+      const d = (a, b) => { let m = 0; for (let j = 0; j < a.pre.length; j += 3) m = Math.max(m, Math.hypot(a.pre[j] - b.pre[j], a.pre[j + 1] - b.pre[j + 1], a.pre[j + 2] - b.pre[j + 2])); return m * 100; };
+      return f.rings.map((r, k) => d(r, f.rings[(k + 1) % f.rings.length]));
+    };
+    const cases = [
+      ["Slinky at 1 turn", { gen: "slinky", loops: 1 }],
+      ["Sphere spin at sweep 360", { gen: "sphere", sweep: 360 }],
+      ["Transform again, no shrink, one turn over the rings", { gen: "again", squashA: 1, stretchA: 1 }],
+      ["Harmonograph, no shrink, phase one cycle over the rings", { gen: "harmono", decay: 0 }],
+    ];
+    for (const [name, p] of cases) {
+      const N = 12;
+      // The problem, reproduced with the toggle off: exactly one cycle puts the last ring on the first.
+      const off = gaps(Object.assign({ rings: N }, p, p.gen === "again" ? { turn: 360 / (N - 1) } : p.gen === "harmono" ? { phaseStep: 1 / (N - 1) } : {}));
+      const results = [N, 7, 31].map(n => { const g = gaps(Object.assign({ rings: n }, p, { closed: true })); return { n, min: Math.min(...g), spread: Math.max(...g) - Math.min(...g) }; });
+      const even = results.every(r => r.min > 1 && r.spread < 1e-3 * r.min);
+      check(`${name}: off, last ring lands on the first; One full turn spaces them evenly`, off[N - 1] < 1e-6 && even,
+        `off: last->first gap ${off[N - 1].toExponential(1)}; on: ${results.map(r => `${r.n} rings, gaps ${r.min.toFixed(1)} (spread ${r.spread.toExponential(1)})`).join("; ")}`);
+    }
   }
 
   // ---- typed values beside the sliders ----

@@ -165,8 +165,9 @@ summary .sub { text-transform: none; letter-spacing: 0; font-weight: 400; color:
   grid-column: 2 / 4; width: 100%; background: var(--panel-2); color: var(--fg);
   border: 1px solid var(--line); border-radius: 4px; padding: 5px 6px; font: 13px var(--ui);
 }
-.ramp-row { margin-top: -1px; }
+.ramp-row { margin-top: -1px; row-gap: 3px; }
 .ramp { grid-column: 2 / 4; width: 100%; height: 12px; display: block; border-radius: 3px; border: 1px solid var(--line); }
+.ramp.fade { height: 8px; }
 .row input[type=color] { grid-column: 2 / 4; width: 100%; height: 26px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 2px; }
 .row input[type=checkbox] { justify-self: start; accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
 
@@ -407,6 +408,8 @@ const FLAT_GENS = new Set(["cover", "again", "blend", "harmono"]);
 const IDLE_HARMONO = p => p.gen === "harmono" ? "Harmonograph draws its own curves, so the base shape is ignored." : null;
 const IDLE_NO_WOBBLE = p => p.wobble === 0 ? "No effect while Wobble is 0." : null;
 const IDLE_NO_FADE = p => p.fade === 0 ? "No effect while Ring fade is 0." : null;
+const CLOSABLE = new Set(["slinky", "sphere", "again", "harmono"]);
+const IDLE_CLOSED = p => p.closed ? "One full turn is on: the rings go exactly once around, spaced by the ring count." : null;
 
 // r: randomize range (null = never randomized). rp: chance the randomizer moves it off its default.
 const SCHEMA = [
@@ -427,11 +430,11 @@ const SCHEMA = [
   { id: "twist", gen: "cover", label: "Twist", type: "range", min: -180, max: 180, step: 0.5, def: 0, r: [-120, 120] },
 
   { id: "alpha", gen: "sphere", label: "Axis tilt", type: "range", min: 0, max: 90, step: 0.1, def: 55, r: [25, 80] },
-  { id: "sweep", gen: "sphere", label: "Sweep", type: "range", min: 0, max: 360, step: 0.5, def: 108, r: [60, 300] },
+  { id: "sweep", gen: "sphere", label: "Sweep", type: "range", min: 0, max: 360, step: 0.5, def: 108, r: [60, 300], idle: IDLE_CLOSED },
 
   { id: "squashA", gen: "again", label: "Squash", type: "range", min: 0.8, max: 1, step: 0.0005, def: 0.92, r: [0.88, 0.99] },
   { id: "stretchA", gen: "again", label: "Stretch", type: "range", min: 0.95, max: 1.05, step: 0.0005, def: 0.992, r: [0.975, 1.02] },
-  { id: "turn", gen: "again", label: "Turn / ring", type: "range", min: -12, max: 12, step: 0.01, def: -1.75, r: [-6, 6] },
+  { id: "turn", gen: "again", label: "Turn / ring", type: "range", min: -12, max: 12, step: 0.01, def: -1.75, r: [-6, 6], idle: IDLE_CLOSED },
 
   { id: "aspect0", gen: "blend", label: "Start aspect", type: "range", min: 0.02, max: 1, step: 0.005, def: 0.96, r: [0.6, 1] },
   { id: "angle0", gen: "blend", label: "Start angle", type: "range", min: -180, max: 180, step: 0.5, def: 10, r: [-180, 180] },
@@ -443,16 +446,26 @@ const SCHEMA = [
 
   { id: "fx", gen: "harmono", label: "X frequency", type: "range", min: 1, max: 9, step: 1, def: 2, r: [1, 5] },
   { id: "fy", gen: "harmono", label: "Y frequency", type: "range", min: 1, max: 9, step: 1, def: 3, r: [1, 5] },
-  { id: "phaseStep", gen: "harmono", label: "Phase / ring", type: "range", min: 0, max: 0.25, step: 0.0005, def: 0.012, r: [0.003, 0.05] },
+  { id: "phaseStep", gen: "harmono", label: "Phase / ring", type: "range", min: 0, max: 0.25, step: 0.0005, def: 0.012, r: [0.003, 0.05], idle: IDLE_CLOSED },
   { id: "decay", gen: "harmono", label: "Shrink", type: "range", min: 0, max: 1, step: 0.01, def: 0.35, r: [0, 0.8] },
 
   { id: "orbitR", gen: "slinky", label: "Orbit", type: "range", min: 0, max: 0.9, step: 0.005, def: 0.38, r: [0.1, 0.6] },
   { id: "ringR", gen: "slinky", label: "Ring size", type: "range", min: 0.1, max: 1, step: 0.005, def: 0.5, r: [0.3, 0.7] },
-  { id: "loops", gen: "slinky", label: "Turns", type: "range", min: 0.1, max: 4, step: 0.01, def: 1, r: [0.3, 2] },
+  { id: "loops", gen: "slinky", label: "Turns", type: "range", min: 0.1, max: 4, step: 0.01, def: 1, r: [0.3, 2], idle: IDLE_CLOSED },
+  // One full turn (the four generators in CLOSABLE): the rings' sweep -- Slinky's Turns, Sphere
+  // spin's Sweep, Transform again's Turn / ring, Harmonograph's Phase / ring -- becomes exactly one
+  // cycle spaced 1/N, so the last ring stops one gap short of the first. Those settings space rings
+  // from the first ring's place to the last's inclusive, so at exactly one cycle the last ring sat
+  // on top of the first (Slinky at 1 turn; Sphere at 360; the other two when rings don't shrink).
+  // Not randomized (toggles never are), so seeds are unchanged.
+  { id: "closed", group: "gen", label: "One full turn", type: "toggle", def: false, when: p => CLOSABLE.has(p.gen),
+    tip: "Exactly one full cycle, the rings spaced evenly by the ring count, so the last never lands on the first. Add rings and the spacing adjusts." },
   { id: "tilt", gen: "slinky", label: "Ring tilt", type: "range", min: 0, max: 90, step: 0.5, def: 75, r: [20, 90] },
 
   { id: "speed", group: "motion", label: "Time speed", type: "range", min: 0, max: 3, step: 0.01, def: 1, r: null },
-  { id: "drift", group: "motion", label: "Drift", type: "range", min: 0, max: 2, step: 0.01, def: 0.3, r: [0.1, 1] },
+  { id: "drift", group: "motion", label: "Drift", type: "range", min: 0, max: 2, step: 0.01, def: 0.3, r: [0.1, 1],
+    // In Transform again, Drift only wobbles the turn per ring, which One full turn holds exact.
+    idle: p => p.gen === "again" && p.closed ? "One full turn keeps Transform again's turn per ring exact, so Drift has nothing to move here." : null },
   { id: "rotate", group: "motion", label: "Rotate", type: "range", min: -180, max: 180, step: 0.5, def: 0, r: [-180, 180], rp: 0.4 },
   { id: "spin", group: "motion", label: "Spin °/s", type: "range", min: -60, max: 60, step: 0.5, def: 0, r: [-15, 15], rp: 0.4 },
   { id: "yaw", group: "motion", label: "View yaw", type: "range", min: -180, max: 180, step: 0.5, def: 0, r: [-40, 40], rp: 0.3 },
@@ -735,7 +748,8 @@ function linearMats(p, N, time) {
     }
   } else if (p.gen === "again") {
     // True repeated transform: ring k = A^k . circle (Copy and Transform would give R(k turn) S^k instead).
-    const turn = p.turn + p.drift * 3 * Math.sin(time * 0.7);
+    // One full turn: 360 / N per ring, held exact (Drift's wobble would break the spacing).
+    const turn = p.closed ? 360 / N : p.turn + p.drift * 3 * Math.sin(time * 0.7);
     const A = mat2(rot2(turn), diag2(p.stretchA, p.squashA));
     let M = [1, 0, 0, 1];
     for (let k = 0; k < N; k++) { mats.push(M); M = mat2(A, M); }
@@ -797,11 +811,13 @@ function ringPre(k, N, M, time, ctx) {
   if (ctx.mats) lin = ctx.mats[k];
   else if (p.gen === "sphere") {
     const a = p.alpha * D2R;
-    R3 = rotAxis([Math.sin(a), 0, Math.cos(a)], (-p.sweep * u - p.drift * 18 * time) * D2R);
+    // One full turn: 360 x k / N instead of Sweep x k / (N - 1).
+    R3 = rotAxis([Math.sin(a), 0, Math.cos(a)], (-(p.closed ? 360 * k / N : p.sweep * u) - p.drift * 18 * time) * D2R);
   } else if (p.gen === "harmono") {
-    harm = { A: 1 - p.decay * u, px: TAU * p.phaseStep * k + p.drift * time * 0.6, py: Math.PI / 2 };
+    // One full turn: the phase steps a whole cycle over the rings, 1/N each.
+    harm = { A: 1 - p.decay * u, px: TAU * (p.closed ? k / N : p.phaseStep * k) + p.drift * time * 0.6, py: Math.PI / 2 };
   } else {
-    const ph = TAU * p.loops * u + p.drift * time * 0.4, tl = p.tilt * D2R, c = Math.cos(ph), s = Math.sin(ph);
+    const ph = (p.closed ? TAU * k / N : TAU * p.loops * u) + p.drift * time * 0.4, tl = p.tilt * D2R, c = Math.cos(ph), s = Math.sin(ph);
     sl = { cx: p.orbitR * c, cy: p.orbitR * s, e1: [c, s, 0], e2: [-s * Math.cos(tl), c * Math.cos(tl), Math.sin(tl)], r: p.ringR };
   }
   for (let j = 0; j <= M; j++) {
@@ -1241,6 +1257,7 @@ function buildControls() {
     const id = "p-" + s.id;
     const lab = document.createElement("label");
     lab.htmlFor = id; lab.textContent = s.label;
+    if (s.tip) lab.title = s.tip;
     row.append(lab);
     let el, out = null;
     if (s.type === "range") {
@@ -1273,32 +1290,40 @@ function buildControls() {
       rampCanvas.title = "Each ring's colour as drawn: first ring on the left, last on the right. Follows Spread and the ring count, and moves with Cycle.";
       rampCanvas.setAttribute("role", "img");
       rampCanvas.setAttribute("aria-label", "Ring colour preview");
-      rr.append(document.createElement("span"), rampCanvas);
+      rampFadeCanvas = document.createElement("canvas");
+      rampFadeCanvas.className = "ramp fade";
+      rampFadeCanvas.title = "Each ring's brightness from Ring fade (white: full, black: faded out), lined up with the colours above.";
+      rampFadeCanvas.setAttribute("role", "img");
+      rampFadeCanvas.setAttribute("aria-label", "Ring fade preview");
+      rr.append(document.createElement("span"), rampCanvas, document.createElement("span"), rampFadeCanvas);
       host.append(rr);
     }
   }
 }
 // One stripe per ring in the colour that ring is drawn in, from the same colour function the rings
 // use, at the current animation time, so Spread, ring count, Custom A/B and Cycle all show exactly.
-// Redrawn only when something it shows changes.
-let rampCanvas = null, rampKey = "";
+// Below it, the same stripes in grey: each ring's brightness from Ring fade (fadeWeight).
+// Redrawn only when something they show changes.
+let rampCanvas = null, rampFadeCanvas = null, rampKey = "";
 function drawRamp(time) {
-  const cv = rampCanvas;
-  if (!cv) return;
-  const w = Math.round(cv.clientWidth * dpr), h = Math.round(cv.clientHeight * dpr);
-  if (!w || !h) return;  // the Look panel is collapsed
+  const cv = rampCanvas, fv = rampFadeCanvas;
+  if (!cv || !fv) return;
+  const w = Math.round(cv.clientWidth * dpr), h = Math.round(cv.clientHeight * dpr), fh = Math.round(fv.clientHeight * dpr);
+  if (!w || !h || !fh) return;  // the Look panel is collapsed
   const N = Math.max(1, Math.round(params.rings));
   const shift = params.cycle ? time * params.cycle / 360 : 0;
-  const key = [w, h, N, params.palette, params.spread, params.colorA, params.colorB, shift].join("|");
+  const key = [w, h, fh, N, params.palette, params.spread, params.colorA, params.colorB, shift, params.fade, params.fadeCurve, params.fadeFrom].join("|");
   if (key === rampKey) return;
   rampKey = key;
-  if (cv.width !== w) cv.width = w;
-  if (cv.height !== h) cv.height = h;
-  const c = cv.getContext("2d"), color = makeColorFn(params, time);
+  for (const [v, vh] of [[cv, h], [fv, fh]]) { if (v.width !== w) v.width = w; if (v.height !== vh) v.height = vh; }
+  const c = cv.getContext("2d"), fc = fv.getContext("2d"), color = makeColorFn(params, time);
   for (let k = 0; k < N; k++) {
-    const x0 = Math.round(k * w / N), x1 = Math.round((k + 1) * w / N);
+    const x0 = Math.round(k * w / N), x1 = Math.round((k + 1) * w / N), sw = Math.max(1, x1 - x0);
     c.fillStyle = rgbToHex(...color(N > 1 ? k / (N - 1) : 0));
-    c.fillRect(x0, 0, Math.max(1, x1 - x0), h);
+    c.fillRect(x0, 0, sw, h);
+    const g = 255 * clamp(fadeWeight(params, k, N), 0, 1);
+    fc.fillStyle = rgbToHex(g, g, g);
+    fc.fillRect(x0, 0, sw, fh);
   }
 }
 // The value beside a slider, editable: type a number and press Enter (or click away), Esc to

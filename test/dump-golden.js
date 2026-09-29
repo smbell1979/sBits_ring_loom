@@ -60,6 +60,10 @@ for (const pal of ["infrared", "aurora", "vapor", "cyber", "fireice", "gold", "d
 for (const [from, curve] of [["last", 1], ["first", 2.5], ["ends", 0.4], ["middle", 1.7]]) {
   looks.push([`fade ${from} ${curve}`, Object.assign(t.defaults(), { gen: "sphere", rings: 23, fade: 0.85, fadeCurve: curve, fadeFrom: from })]);
 }
+// One full turn, on every generator that has it.
+for (const [gen, extra] of [["slinky", { rings: 17 }], ["sphere", { rings: 13, alpha: 40 }], ["again", { rings: 21, squashA: 0.97 }], ["harmono", { rings: 9, decay: 0.2 }]]) {
+  looks.push([`one full turn ${gen}`, Object.assign(t.defaults(), { gen, closed: true, drift: 0.4 }, extra)]);
+}
 // Typed values between the sliders' steps (the page keeps them exactly).
 looks.push(["typed off-step values", Object.assign(t.defaults(), { gen: "again", roll: 12.37, yaw: -7.33, pitch: 3.14159, twist: 45.125, squash: 0.9137, zoom: 1.0625 })]);
 looks.push(["roll+mirror", Object.assign(t.defaults(), { gen: "slinky", roll: 75, pitch: 30, mirror: 5, rings: 20 })]);
