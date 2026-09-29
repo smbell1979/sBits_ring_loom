@@ -165,6 +165,8 @@ summary .sub { text-transform: none; letter-spacing: 0; font-weight: 400; color:
   grid-column: 2 / 4; width: 100%; background: var(--panel-2); color: var(--fg);
   border: 1px solid var(--line); border-radius: 4px; padding: 5px 6px; font: 13px var(--ui);
 }
+.ramp-row { margin-top: -1px; }
+.ramp { grid-column: 2 / 4; width: 100%; height: 12px; display: block; border-radius: 3px; border: 1px solid var(--line); }
 .row input[type=color] { grid-column: 2 / 4; width: 100%; height: 26px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 2px; }
 .row input[type=checkbox] { justify-self: start; accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
 
@@ -1200,6 +1202,8 @@ function tick(now) {
     // Trails need continuous frames even when paused, otherwise they freeze half-faded.
     if (animating || dirty || (params.trails > 0 && playing)) { draw(); dirty = false; }
   }
+  // The controls show the look being edited, so its ramp runs on that look's own clock.
+  drawRamp(T);
   requestAnimationFrame(tick);
 }
 
@@ -1260,6 +1264,41 @@ function buildControls() {
     if (out) row.append(out);
     host.append(row);
     inputs[s.id] = { s, el, out, row };
+    if (s.id === "palette") {
+      // The colour ramp as the rings get it, under the Colour menu (drawRamp).
+      const rr = document.createElement("div");
+      rr.className = "row ramp-row";
+      rampCanvas = document.createElement("canvas");
+      rampCanvas.className = "ramp";
+      rampCanvas.title = "Each ring's colour as drawn: first ring on the left, last on the right. Follows Spread and the ring count, and moves with Cycle.";
+      rampCanvas.setAttribute("role", "img");
+      rampCanvas.setAttribute("aria-label", "Ring colour preview");
+      rr.append(document.createElement("span"), rampCanvas);
+      host.append(rr);
+    }
+  }
+}
+// One stripe per ring in the colour that ring is drawn in, from the same colour function the rings
+// use, at the current animation time, so Spread, ring count, Custom A/B and Cycle all show exactly.
+// Redrawn only when something it shows changes.
+let rampCanvas = null, rampKey = "";
+function drawRamp(time) {
+  const cv = rampCanvas;
+  if (!cv) return;
+  const w = Math.round(cv.clientWidth * dpr), h = Math.round(cv.clientHeight * dpr);
+  if (!w || !h) return;  // the Look panel is collapsed
+  const N = Math.max(1, Math.round(params.rings));
+  const shift = params.cycle ? time * params.cycle / 360 : 0;
+  const key = [w, h, N, params.palette, params.spread, params.colorA, params.colorB, shift].join("|");
+  if (key === rampKey) return;
+  rampKey = key;
+  if (cv.width !== w) cv.width = w;
+  if (cv.height !== h) cv.height = h;
+  const c = cv.getContext("2d"), color = makeColorFn(params, time);
+  for (let k = 0; k < N; k++) {
+    const x0 = Math.round(k * w / N), x1 = Math.round((k + 1) * w / N);
+    c.fillStyle = rgbToHex(...color(N > 1 ? k / (N - 1) : 0));
+    c.fillRect(x0, 0, Math.max(1, x1 - x0), h);
   }
 }
 // The value beside a slider, editable: type a number and press Enter (or click away), Esc to
