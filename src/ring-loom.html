@@ -891,20 +891,33 @@ function pairUp(na, nb) {
   return { n, ia, ib, wa: ia.map(k => 1 / da[k]), wb: ib.map(k => 1 / db[k]) };
 }
 
+// The in-plane angle (Rotate + spin x clock) t of the way from look a's to look b's, at clock time.
+// Each look keeps spinning at its own rate; the blend closes the gap between them the short way
+// round, the way being chosen from the gap at tau0, the clock when the blend began, and kept for
+// the whole blend. Two approaches were tried first and dropped:
+// - The short way between the current angles: with different spins the gap drifts, and when it
+//   passes 180 degrees mid-blend the way flips -- the picture jumps.
+// - Mixing the spin speeds: rot = time x mixed speed, so the blend added (spin difference x clock)
+//   of turning -- a minute into playing, 20 vs -10 deg/s gave five extra spins per blend.
+// This way the only turning beyond the short way is the looks' own drift during the blend.
+function rotBetween(va, vb, time, tau0, t) {
+  const g0 = vb.rotate - va.rotate + (vb.spin - va.spin) * tau0;  // the gap when the blend began
+  const way = g0 - (((g0 % 360) + 540) % 360 - 180);             // whole turns to skip: short way
+  return va.rotate + va.spin * time + t * (vb.rotate - va.rotate + (vb.spin - va.spin) * time - way);
+}
 // Two look3d frames (built at the same moment) mixed t of the way, as a look3d frame. ringT
-// (optional): each output ring's own progress, for staggered blends; turns: extra roll turns.
+// (optional): each output ring's own progress, for staggered blends; turns: extra roll turns;
+// tau0: the clock when the blend began (rotBetween), the frames' own time if not given.
 // Each ring's shape mixes in 3D and its view angles as angles, on that ring's own progress, so
 // staggered rings turn into place one by one:
-//   yaw, Rotate, roll  the short way round (roll plus the card's turns)
-//   pitch              straight (it only runs -89..89)
-//   spin               mixed as a speed and applied to the shared clock: the looks' current angles
-//                      drift apart as they spin, so taking "the short way" between those would
-//                      flip direction, and jump, whenever the gap passed 180 degrees
+//   yaw, roll     the short way round (roll plus the card's turns)
+//   Rotate, spin  rotBetween
+//   pitch         straight (it only runs -89..89)
 // The camera (distance, zoom) and drawing settings follow the overall progress t: in Houdini the
 // camera is one object, and this keeps the two matching exactly.
-function blendFrames(fa, fb, t, ringT, turns) {
+function blendFrames(fa, fb, t, ringT, turns, tau0) {
   const R = pairUp(fa.rings.length, fb.rings.length);
-  const va = fa.view, vb = fb.view, time = fa.time;
+  const va = fa.view, vb = fb.view, time = fa.time, t0 = tau0 === undefined ? time : tau0;
   const rings = [];
   for (let i = 0; i < R.n; i++) {
     const a = fa.rings[R.ia[i]], b = fb.rings[R.ib[i]], tr = ringT ? ringT[i] : t;
@@ -914,7 +927,7 @@ function blendFrames(fa, fb, t, ringT, turns) {
     const ang = {
       pitch: lerp(va.pitch, vb.pitch, tr), yaw: rollBetween(va.yaw, vb.yaw, tr, 0),
       roll: rollBetween(va.roll, vb.roll, tr, turns),
-      rot: rollBetween(va.rotate, vb.rotate, tr, 0) + time * lerp(va.spin, vb.spin, tr),
+      rot: rotBetween(va, vb, time, t0, tr),
     };
     rings.push({ pre, rgb: mixColour(a.rgb, b.rgb, tr), w: lerp(a.w * R.wa[i], b.w * R.wb[i], tr), ang });
   }
@@ -986,12 +999,13 @@ function ringProgress(u, n, stagger, ease) {
 }
 // Look pa morphing into look pb at raw blend time u (0-1), shaped by the card `how`: its easing,
 // extra roll turns, stagger and swirl. Ring shapes, colours and view angles follow each ring's own
-// progress; the camera, kaleidoscope and drawing settings follow the overall one.
-function morphFrame(pa, pb, time, size, M, u, how = {}) {
+// progress; the camera, kaleidoscope and drawing settings follow the overall one. tau0: the clock
+// when this blend began (see rotBetween); defaults to time.
+function morphFrame(pa, pb, time, size, M, u, how = {}, tau0 = time) {
   const ease = (EASES[how.ease] || EASES.linear).f, e = ease(u);
   const fa = look3d(pa, time, M), fb = look3d(pb, time, M);
   const ringE = ringProgress(u, Math.max(fa.rings.length, fb.rings.length), how.stagger, ease);
-  const f = project(blendFrames(fa, fb, e, ringE, how.turns), size);
+  const f = project(blendFrames(fa, fb, e, ringE, how.turns, tau0), size);
   if (!how.swirl) return f;
   // Swirl peaks mid-blend and is gone as each ring arrives.
   return twistFrame(f, size, () => 0, i => how.swirl * Math.sin(Math.PI * (ringE ? ringE[i] : e)));
@@ -1047,7 +1061,18 @@ function currentFrame() {
   const a = seq.cards[at.i].params;
   if (at.u <= 0) return computeFrame(a, seq.tau, size);
   const b = seq.cards[at.j].params, M = Math.max(Math.round(a.res), Math.round(b.res));
-  return morphFrame(a, b, seq.tau, size, M, at.u, seq.cards[at.i]);
+  const card = seq.cards[at.i];
+  return morphFrame(a, b, seq.tau, size, M, at.u, card, blendStartTau(seq.tau, card, a.speed, b.speed, at.u));
+}
+// The animation clock when the current blend began: the clock now, less what it gained since.
+// During a blend the clock runs at the two looks' Time speeds mixed by the eased progress (tick),
+// so the gain is that speed integrated over the blend time elapsed. Computed rather than recorded
+// so it's right after scrubbing too.
+function blendStartTau(tau, card, speedA, speedB, u) {
+  const f = EASES[card.ease].f, n = 16;
+  let sum = 0;
+  for (let k = 0; k < n; k++) sum += lerp(speedA, speedB, f(u * (k + 0.5) / n));
+  return tau - card.blend * u * (sum / n);
 }
 function draw() { renderFrame(currentFrame()); }
 

@@ -479,13 +479,21 @@ def ring_progress(u, n, stagger, ease):
     return out
 
 
-def blend3d(A, B, u, turns=0, stagger=0.0, swirl=0.0, ease="linear"):
+def rot_between(va, vb, time, tau0, t):
+    """The in-plane angle (Rotate + spin x clock) t of the way from look a to b (page rotBetween):
+    each look keeps its own spin, and the gap between them closes the short way round, the way
+    chosen from the gap at tau0 (the clock when the blend began) and kept for the whole blend."""
+    g0 = vb["rotate"] - va["rotate"] + (vb["spin"] - va["spin"]) * tau0
+    way = g0 - (math.fmod(math.fmod(g0, 360) + 540, 360) - 180)
+    return va["rotate"] + va["spin"] * time + t * (vb["rotate"] - va["rotate"] + (vb["spin"] - va["spin"]) * time - way)
+
+
+def blend3d(A, B, u, turns=0, stagger=0.0, swirl=0.0, ease="linear", tau0=None):
     """A morphing into B at raw blend time u, with the card's ease, extra roll turns, stagger and
     swirl (page morphFrame, blendFrames). Ring shapes, colours and view angles follow each ring's
     own progress; the camera (distance, zoom) and drawing settings follow the overall eased
-    progress. Spin is mixed as a speed on the shared clock, not as the looks' current angles,
-    which drift apart as they spin (taking the short way between those jumps once the gap passes
-    180 degrees)."""
+    progress. Rotate and spin follow rot_between; tau0 is the clock when the blend began (the
+    frames' own time if None)."""
     t = EASES[ease](u)
     n, ia, ib, wa, wb = pair_up(len(A["w"]), len(B["w"]))
     te = ring_progress(u, n, stagger, ease)
@@ -501,7 +509,7 @@ def blend3d(A, B, u, turns=0, stagger=0.0, swirl=0.0, ease="linear"):
     view = {"pitch": va["pitch"] + (vb["pitch"] - va["pitch"]) * te,
             "yaw": _shortest(va["yaw"], vb["yaw"], te),
             "roll": _shortest(va["roll"], vb["roll"], te) + 360 * turns * te,
-            "rot": _shortest(va["rotate"], vb["rotate"], te) + va["time"] * (va["spin"] + (vb["spin"] - va["spin"]) * te),
+            "rot": rot_between(va, vb, va["time"], va["time"] if tau0 is None else tau0, te),
             "D": lerp(va["D"], vb["D"], t), "zoom": lerp(va["zoom"], vb["zoom"], t)}
     la, lb = A["look"], B["look"]
     look = {k: lerp(la[k], lb[k], t) for k in ("width", "alpha", "glow", "trails")}
@@ -679,8 +687,10 @@ def evaluate(cards, clock, M=None):
         return look3d(a["params"], tau, M), a["name"]
     b = cards[at["j"]]
     m = M or max(jsround(a["params"]["res"]), jsround(b["params"]["res"]))
+    # The clock when this blend began, for choosing its way round (rot_between).
+    tau0 = anim_time(cards, clock - at["u"] * a["blend"])
     return (blend3d(look3d(a["params"], tau, m), look3d(b["params"], tau, m), at["u"],
-                    a["turns"], a["stagger"], a["swirl"], a["ease"]),
+                    a["turns"], a["stagger"], a["swirl"], a["ease"], tau0),
             "%s -> %s" % (a["name"], b["name"]))
 
 

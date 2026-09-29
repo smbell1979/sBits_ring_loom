@@ -8,7 +8,7 @@ const hook = "function draw() { renderFrame(currentFrame()); }";
 if (!js.includes(hook)) { console.error("FAIL: draw() hook line not found; update this test"); process.exit(1); }
 // Getters, not values: the hook line sits above some of these declarations, so reading them
 // eagerly would hit the temporal dead zone. By the time the checks run, all exist.
-const exposed = ["computeFrame", "blendFrames", "pairUp", "morphFrame", "rollFrame", "rollBetween", "ringProgress", "cleanCard", "seqAt", "seq", "EASES", "defaults", "PRESETS", "START_PARAMS", "cleanParams",
+const exposed = ["computeFrame", "blendFrames", "pairUp", "morphFrame", "rollFrame", "rollBetween", "rotBetween", "blendStartTau", "ringProgress", "cleanCard", "seqAt", "seq", "EASES", "defaults", "PRESETS", "START_PARAMS", "cleanParams",
   "readLibrary", "writeLibrary", "libraryUpsert", "parseSequenceFile", "sequenceFileData", "cardsForSave", "makeCard", "seqDirty", "seqKey",
   "lookFileData", "readLookFile", "params", "fmt", "readTyped", "BY_ID", "rgbToOklab", "oklabToRgb", "oklabToLinear", "mixColour", "hexToRgb"];
 js = js.replace(hook, hook + "\nglobalThis.__t = {" + exposed.map(n => `get ${n}() { return ${n}; }`).join(", ") + "};");
@@ -112,9 +112,40 @@ setTimeout(() => {
     // gap passes 180 degrees; the blend must stay smooth there (the old angle-based mix flipped).
     const sa = Object.assign({}, base, { spin: 20 }), sb = Object.assign({}, base, { spin: -25 });
     const late = 3.7;  // seconds: gap 45 deg/s x 3.7 s = 166.5 deg, and it grows through 180 during the blend
-    const across = n => { let w = 0, prev = t.morphFrame(sa, sb, late, size, M, 0, {}); for (let s = 1; s <= n; s++) { const u = s / n, f = t.morphFrame(sa, sb, late + u * 1.0, size, M, u, {}); f.rings.forEach((r, i) => { const q = prev.rings[i]; for (let j = 0; j < r.pts.length; j++) w = Math.max(w, Math.abs(r.pts[j] - q.pts[j])); }); prev = f; } return w; };
+    // The blend began at `late`, as the sequence passes it (tau0).
+    const across = n => { let w = 0, prev = t.morphFrame(sa, sb, late, size, M, 0, {}, late); for (let s = 1; s <= n; s++) { const u = s / n, f = t.morphFrame(sa, sb, late + u * 1.0, size, M, u, {}, late); f.rings.forEach((r, i) => { const q = prev.rings[i]; for (let j = 0; j < r.pts.length; j++) w = Math.max(w, Math.abs(r.pts[j] - q.pts[j])); }); prev = f; } return w; };
     const a1 = across(200), a2 = across(400);
     check("different spin speeds blend smoothly while their gap passes 180 degrees", a1 / a2 > 1.8 && a1 / a2 < 2.2, `${a1.toFixed(2)} -> ${a2.toFixed(2)} px, ratio ${(a1 / a2).toFixed(2)}`);
+    // How far a blend turns. Beyond each look's own spin, a blend may add at most the short way
+    // round (180) plus the looks' drift apart during the blend -- however long the page has been
+    // playing. (Mixing spin speeds added spin difference x clock: 30 deg/s x 60 s = 5 extra turns.)
+    // Measured on the drawn picture: follow one point of a ring through the blend and add up how
+    // far it turns about the centre. (So this works on any version of the page, not only one with
+    // this code's helpers.) The two looks differ only in Rotate and spin.
+    const flatLook = Object.assign(t.defaults(), { gen: "cover", rings: 3, drift: 0, yaw: 0, pitch: 0, persp: 0, roll: 0, speed: 1 });
+    const la = Object.assign({}, flatLook, { rotate: 40, spin: 20 }), lb = Object.assign({}, flatLook, { rotate: -70, spin: -10 });
+    const blendSecs = 3, n = 600;
+    const turning = start => {
+      let total = 0, prev = null;
+      for (let s = 0; s <= n; s++) {
+        const u = s / n, f = t.morphFrame(la, lb, start + u * blendSecs, size, M, u, {}, start);
+        const p = f.rings[0].pts, ang = Math.atan2(-p[1], p[0]) / D2R;
+        if (prev !== null) total += ((ang - prev + 540) % 360) - 180;
+        prev = ang;
+      }
+      return Math.abs(total);
+    };
+    // On its own, a look would turn at most |spin| x blend time; the blend may add at most the
+    // short way round plus the two looks' drift apart during it.
+    const ownMost = Math.max(Math.abs(la.spin), Math.abs(lb.spin)) * blendSecs;
+    const allowed = ownMost + 180 + Math.abs(la.spin - lb.spin) * blendSecs;
+    const turned = [0, 7.3, 60, 600].map(turning);
+    check("a blend never adds more than the short way round, however long the page has played", turned.every(v => v <= allowed),
+      `turned ${turned.map(v => v.toFixed(0)).join(", ")} deg starting at 0 s, 7 s, 1 min, 10 min; allowed ${allowed}`);
+    // blendStartTau undoes what the clock gained during the blend so far.
+    const card = { ease: "linear", blend: 4 };
+    const back = t.blendStartTau(50, card, 1, 2, 0.5);  // gained 4 x integral_0^0.5 (1 + v) dv = 2.5
+    check("the clock at a blend's start is worked back correctly", Math.abs(back - 47.5) < 1e-3, `${back.toFixed(4)} (want 47.5)`);
   }
 
   // ---- roll through a blend ----

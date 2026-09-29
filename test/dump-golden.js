@@ -82,7 +82,10 @@ const blendPairs = [
   // way between the current angles would go the other way round from the true blend.
   ["rotate 180 + spin gap past 180", flat({ gen: "cover", rings: 19, rotate: -90, spin: 30 }),
     flat({ gen: "sphere", rings: 12, rotate: 90, spin: -40, pitch: 35 }), {}],
-  ["stagger + views", flat({ gen: "slinky", rings: 20, yaw: 30, pitch: 50, zoom: 1.2, persp: 0.8 }),
+  // A blend that began earlier (tau0 1.2, gap -84 deg: the short way is clockwise); by now (3.1)
+  // the gap is -217, whose short way would be the other direction. It must keep the first way.
+  ["spin gap, blend began earlier", flat({ gen: "cover", rings: 19, spin: 30 }), flat({ gen: "again", rings: 24, spin: -40 }), { tau0: 1.2 }],
+  ["stagger + views",flat({ gen: "slinky", rings: 20, yaw: 30, pitch: 50, zoom: 1.2, persp: 0.8 }),
     flat({ gen: "harmono", rings: 12, yaw: -120, pitch: -10, zoom: 0.8 }), { stagger: 0.6, ease: "smooth", turns: -1 }],
   ["swirl", flat({ gen: "again", rings: 24, base: "star", sides: 5 }), flat({ gen: "cover", rings: 19 }), { swirl: 270, ease: "smooth" }],
   ["swirl zoomed", flat({ gen: "blend", rings: 25, zoom: 1.6 }), flat({ gen: "blend", rings: 25, zoom: 1.6, phase: -90 }), { swirl: -405 }],
@@ -91,7 +94,7 @@ const blendPairs = [
 const blends = [];
 for (const [name, a, b, how = {}] of blendPairs) {
   for (const u of [0, 0.25, 0.5, 0.8, 1]) {
-    const f = t.morphFrame(a, b, 3.1, SIZE, M, u, how);
+    const f = t.morphFrame(a, b, 3.1, SIZE, M, u, how, how.tau0 ?? 3.1);
     blends.push({ name, a, b, how, tau: 3.1, u, frame: frameOut(f) });
   }
 }
