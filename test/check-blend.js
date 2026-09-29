@@ -10,7 +10,7 @@ if (!js.includes(hook)) { console.error("FAIL: draw() hook line not found; updat
 // eagerly would hit the temporal dead zone. By the time the checks run, all exist.
 const exposed = ["computeFrame", "blendFrames", "pairUp", "morphFrame", "rollFrame", "rollBetween", "ringProgress", "cleanCard", "seqAt", "seq", "EASES", "defaults", "PRESETS", "START_PARAMS", "cleanParams",
   "readLibrary", "writeLibrary", "libraryUpsert", "parseSequenceFile", "sequenceFileData", "cardsForSave", "makeCard", "seqDirty", "seqKey",
-  "lookFileData", "readLookFile", "params"];
+  "lookFileData", "readLookFile", "params", "fmt", "readTyped", "BY_ID"];
 js = js.replace(hook, hook + "\nglobalThis.__t = {" + exposed.map(n => `get ${n}() { return ${n}; }`).join(", ") + "};");
 
 // In-memory localStorage whose behaviour the library tests can switch: normal, throwing
@@ -172,6 +172,18 @@ setTimeout(() => {
   }
   // Turns in files: whole numbers only, clamped, and left out of files when 0.
   check("turns read from a file are whole and clamped", t.cleanCard({ params: A, turns: 2.6 }).turns === 3 && t.cleanCard({ params: A, turns: -99 }).turns === -10 && t.cleanCard({ params: A }).turns === 0);
+
+  // ---- typed values beside the sliders ----
+  {
+    const S = t.BY_ID, rd = (id, txt) => t.readTyped(S[id], txt);
+    check("a precise typed value is kept exactly, not snapped to the slider step", rd("roll", "12.37") === 12.37 && rd("twist", "45.125") === 45.125);
+    check("typographic minus, leading + and decimal comma are read", rd("roll", "−30") === -30 && rd("roll", "+7.5") === 7.5 && rd("zoom", "1,25") === 1.25);
+    check("text that isn't a number is refused (field reverts)", ["", "-", "abc", "1.2.3", "Infinity", "12deg", "--3"].every(x => rd("roll", x) === null));
+    check("out-of-range values are clamped to the slider's range", rd("roll", "400") === 180 && rd("roll", "-1e9") === -180);
+    check("counts round to whole numbers", rd("rings", "19.6") === 20 && rd("mirror", "2.4") === 2 && rd("res", "333") === 333);
+    check("a precise value is shown in full, not rounded to the step", t.fmt(S.roll, 12.37) === "12.37" && t.fmt(S.roll, 12.5) === "12.5" && t.fmt(S.rings, 20) === "20" && t.fmt(S.zoom, 1) === t.fmt(S.zoom, 1.0));
+    check("a precise value survives saving and loading", t.cleanParams({ roll: 12.37, twist: 45.125 }).roll === 12.37 && t.cleanParams({ twist: 45.125 }).twist === 45.125);
+  }
 
   // Sequence clock: hold, then blend, and the last look blends back into the first.
   t.seq.cards = [

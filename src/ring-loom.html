@@ -148,9 +148,18 @@ summary::after { content: "+"; font-family: var(--mono); }
 details[open] summary::after { content: "–"; }
 summary .sub { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--accent); font-size: 12.5px; }
 .rows { display: flex; flex-direction: column; gap: 5px; margin-top: 9px; }
-.row { display: grid; grid-template-columns: 92px minmax(0, 1fr) 50px; align-items: center; gap: 8px; }
+.row { display: grid; grid-template-columns: 92px minmax(0, 1fr) 58px; align-items: center; gap: 8px; }
 .row label { color: var(--muted); font-size: 12.5px; }
-.row output { font: 11.5px var(--mono); text-align: right; font-variant-numeric: tabular-nums; color: var(--fg); }
+/* Reads as plain text until hovered or focused, then shows it can be typed into. */
+.row .num {
+  width: 100%; min-width: 0; margin: 0; padding: 2px 4px; border: 1px solid transparent; border-radius: 3px;
+  background: transparent; color: var(--fg); font: 11.5px var(--mono); text-align: right; font-variant-numeric: tabular-nums;
+}
+.row .num:hover { border-color: var(--line); }
+.row .num:focus { border-color: var(--accent); background: var(--panel-2); outline: none; }
+/* Flashed when a typed value couldn't be used as typed (not a number, out of range, or a count). */
+.row .num.bad { animation: numBad 0.7s ease-out; }
+@keyframes numBad { from { background: var(--hot); color: #000; } }
 .row input[type=range] { width: 100%; accent-color: var(--accent); margin: 0; }
 .row select {
   grid-column: 2 / 4; width: 100%; background: var(--panel-2); color: var(--fg);
@@ -473,7 +482,7 @@ const START_PARAMS = {"gen":"cover","base":"circle","sides":8,"depth":0.45,"supe
 //   node tools/set-default.js <file>.ringloom.json [--still] [--apply]
 // which checks the file with this page's own reader first; don't edit between the markers by hand.
 // BEGIN DEFAULT_START
-const DEFAULT_START = null;
+const DEFAULT_START = {"play":true,"source":"default.ringloom.json","file":{"ringLoom":1,"kind":"sequence","name":"Test Sequence v001","savedAt":"2026-09-29T15:05:04.320Z","sequence":[{"name":"Opening look","params":{"gen":"cover","base":"circle","sides":8,"depth":0.45,"superexp":2,"rings":20,"res":360,"wobble":0,"lobes":2,"ringPhase":0.141,"wobbleSpeed":0.74,"flare":2.81,"squash":0.79,"twist":-180,"alpha":55,"sweep":108,"squashA":0.92,"stretchA":0.992,"turn":-1.75,"aspect0":0.96,"angle0":10,"aspect1":0.08,"angle1":-22,"size1":0.8,"phase":40,"ease":0.8,"fx":2,"fy":3,"phaseStep":0.012,"decay":0.35,"orbitR":0.38,"ringR":0.5,"loops":1,"tilt":75,"speed":1,"drift":0.73,"rotate":158,"spin":-14.5,"yaw":9,"pitch":-3,"roll":0,"persp":0,"zoom":0.67,"palette":"dusk","colorA":"#f44e35","colorB":"#1670f5","spread":0.76,"cycle":0,"width":1.35,"alphaL":0.44,"glow":10.5,"trails":0.65,"mirror":1,"additive":true,"bg":"#000000"},"hold":3,"blend":3,"ease":"smooth"},{"name":"Rolling sphere","params":{"gen":"blend","base":"infinity","sides":6,"depth":0.7,"superexp":2.32,"rings":20,"res":360,"wobble":0,"lobes":11,"ringPhase":0.055,"wobbleSpeed":-1.4,"flare":1,"squash":1,"twist":0,"alpha":55,"sweep":108,"squashA":0.92,"stretchA":0.992,"turn":-1.75,"aspect0":0.96,"angle0":10,"aspect1":0.08,"angle1":-22,"size1":0.8,"phase":40,"ease":0.8,"fx":2,"fy":3,"phaseStep":0.012,"decay":0.35,"orbitR":0.445,"ringR":0.355,"loops":0.64,"tilt":24.5,"speed":1,"drift":0.64,"rotate":0,"spin":9,"yaw":0,"pitch":-16.5,"roll":0,"persp":0.5,"zoom":0.95,"palette":"spectrum","colorA":"#fd0556","colorB":"#58f21c","spread":0.51,"cycle":0,"width":2.15,"alphaL":1,"glow":7.5,"trails":0,"mirror":1,"additive":true,"bg":"#000000"},"hold":3,"blend":3,"ease":"smooth"},{"name":"Star weave","params":{"gen":"slinky","base":"circle","sides":9,"depth":0.28,"superexp":2.25,"rings":20,"res":336,"wobble":0,"lobes":3,"ringPhase":0.098,"wobbleSpeed":-0.61,"flare":1,"squash":1,"twist":0,"alpha":55,"sweep":108,"squashA":0.92,"stretchA":0.992,"turn":-1.75,"aspect0":0.96,"angle0":10,"aspect1":0.08,"angle1":-22,"size1":0.8,"phase":40,"ease":0.8,"fx":2,"fy":3,"phaseStep":0.012,"decay":0.35,"orbitR":0.665,"ringR":0.615,"loops":1.04,"tilt":72,"speed":0.66,"drift":0.47,"rotate":90.5,"spin":12.5,"yaw":-92.5,"pitch":-20.5,"roll":89,"persp":0,"zoom":0.71,"palette":"ultra","colorA":"#5721f8","colorB":"#045bfc","spread":2.88,"cycle":92,"width":1,"alphaL":0.78,"glow":6,"trails":0.4,"mirror":1,"additive":true,"bg":"#000000"},"hold":3,"blend":3,"ease":"smooth"}]}};
 // END DEFAULT_START
 
 // ---------- state ----------
@@ -954,7 +963,27 @@ function tick(now) {
 // ---------- controls ----------
 const inputs = {};
 const decimals = s => (String(s.step).split(".")[1] || "").length;
-function fmt(s, v) { return s.type === "range" ? Number(v).toFixed(Math.min(3, decimals(s))) : ""; }
+// The step's decimals, unless the value is finer than the step (typed in): then it shows in full,
+// so a precise value is never displayed rounded to something it isn't.
+function fmt(s, v) {
+  if (s.type !== "range") return "";
+  const n = Number(v), plain = n.toFixed(Math.min(3, decimals(s)));
+  return Math.abs(+plain - n) < 1e-9 ? plain : String(+n.toFixed(6));
+}
+// Sliders that are counts: the drawing rounds them, so a typed value is rounded too rather than
+// showing a fraction that has no effect.
+const COUNTS = new Set(["sides", "rings", "res", "lobes", "mirror", "fx", "fy"]);
+// A typed value for slider s: null if the text isn't a number, else the number clamped to the
+// slider's range (files are clamped the same way on load, so a value outside it wouldn't survive).
+// Accepts a leading +, a typographic minus and a decimal comma.
+function readTyped(s, text) {
+  const t = String(text).trim().replace(/[−–]/g, "-").replace(",", ".");
+  if (!/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(t)) return null;
+  let v = +t;
+  if (!Number.isFinite(v)) return null;
+  if (COUNTS.has(s.id)) v = Math.round(v);
+  return clamp(v, s.min, s.max);
+}
 
 function buildControls() {
   for (const s of SCHEMA) {
@@ -970,8 +999,7 @@ function buildControls() {
     if (s.type === "range") {
       el = document.createElement("input");
       el.type = "range"; el.min = s.min; el.max = s.max; el.step = s.step;
-      out = document.createElement("output");
-      out.htmlFor = id;
+      out = numberField(s);
     } else if (s.type === "select") {
       el = document.createElement("select");
       for (const [k, v] of Object.entries(s.options)) { const o = document.createElement("option"); o.value = k; o.textContent = v; el.append(o); }
@@ -991,11 +1019,43 @@ function buildControls() {
     inputs[s.id] = { s, el, out, row };
   }
 }
+// The value beside a slider, editable: type a number and press Enter (or click away), Esc to
+// cancel, Up/Down to nudge by one step (Shift for ten). Applies on commit rather than per
+// keystroke, so half-typed text like "-" or "0." never reaches the picture.
+function numberField(s) {
+  const f = document.createElement("input");
+  f.type = "text"; f.className = "num"; f.inputMode = "decimal"; f.spellcheck = false;
+  f.setAttribute("aria-label", `${s.label} value`);
+  f.title = `${s.min} to ${s.max}. Enter to apply, Esc to cancel, ↑↓ to nudge (Shift ×10).`;
+  const show = () => { f.value = fmt(s, params[s.id]); };
+  const flash = () => { f.classList.remove("bad"); void f.offsetWidth; f.classList.add("bad"); };
+  const commit = () => {
+    const v = readTyped(s, f.value);
+    if (v === null) { flash(); show(); return; }  // not a number: back to the current value
+    const typed = +String(f.value).trim().replace(/[−–]/g, "-").replace(",", ".");
+    if (v !== typed) flash();  // clamped or rounded: the field now shows what was used
+    if (v !== params[s.id]) { inputs[s.id].el.value = v; setParam(s.id, v, true); }
+    show();
+  };
+  f.addEventListener("change", commit);
+  f.addEventListener("focus", () => f.select());
+  f.addEventListener("keydown", e => {
+    if (e.key === "Enter") { commit(); f.select(); }
+    else if (e.key === "Escape") { show(); f.blur(); }
+    else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      e.preventDefault();
+      const cur = readTyped(s, f.value) ?? params[s.id];
+      f.value = String(+(cur + (e.key === "ArrowUp" ? 1 : -1) * s.step * (e.shiftKey ? 10 : 1)).toFixed(6));
+      commit();
+    }
+  });
+  return f;
+}
 function syncUI() {
   for (const { s, el, out, row } of Object.values(inputs)) {
     const v = params[s.id];
     if (s.type === "toggle") el.checked = !!v; else el.value = v;
-    if (out) out.value = fmt(s, v);
+    if (out && out !== document.activeElement) out.value = fmt(s, v);
     row.hidden = (s.gen && s.gen !== params.gen) || (s.when && !s.when(params));
   }
   updateIdle();

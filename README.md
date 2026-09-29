@@ -31,6 +31,11 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
   easing, turns, stagger and swirl) and **Open file** loads one back on any computer; it also accepts a settings code.
   Anything that would replace unsaved changes asks for a second press first.
 - Controls that do nothing in the current combination are dimmed, with the reason on hover.
+- **Typed values:** click the number beside any slider to type an exact value, then Enter (or
+  click away); Esc cancels, Up/Down nudge by one step (Shift for ten). Values between the slider's
+  steps are kept exactly, saved and read by Houdini. Out-of-range values are clamped and counts
+  (rings, sides, lobes, kaleidoscope, smoothness, harmonograph frequencies) round to whole
+  numbers; the field flashes when it used something other than what was typed.
 - **Save** a PNG frame, an SVG of the current lines, or a video clip, including exactly one loop
   of the sequence.
 - **Settings code** copies the exact look as JSON so it can be pasted back later.
