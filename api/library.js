@@ -8,7 +8,7 @@
 // is conditional on the blob's ETag and retried if another device wrote meanwhile, so no update
 // is lost. GET ?code=...: just the stored library (or an empty one).
 const { createHash } = require("node:crypto");
-const { get, put, BlobPreconditionFailedError } = require("@vercel/blob");
+const { get, head, put, BlobNotFoundError, BlobPreconditionFailedError } = require("@vercel/blob");
 const { mergeLibraries } = require("./_merge.js");
 
 const CODE = /^[a-z]+-[a-z]+-[a-z]+-\d{4}$/;
@@ -17,6 +17,13 @@ const MAX_BYTES = 4 * 1024 * 1024;  // a library of thousands of looks is well u
 const pathFor = code => "libraries/" + createHash("sha256").update("ring-loom:" + code).digest("hex") + ".json";
 
 async function readLibrary(path) {
+  // The ETag for the conditional write comes from head(), the blob's metadata, which is the
+  // form the API compares x-if-match against. The ETag header on get()'s download response is
+  // not: using it made every write onto an existing library fail its precondition. head() runs
+  // before get() so a write landing between the two fails the put (a retry) rather than being
+  // overwritten by content read before it.
+  let etag = null;
+  try { etag = (await head(path)).etag || null; } catch (e) { if (!(e instanceof BlobNotFoundError)) throw e; }
   const r = await get(path, { access: "private", useCache: false });  // from origin, never a stale CDN copy
   if (!r || r.statusCode !== 200) return { data: { favourites: [], sequences: [] }, etag: null };
   const text = await new Response(r.stream).text();
