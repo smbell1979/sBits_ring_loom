@@ -12,7 +12,7 @@ const exposed = ["computeFrame", "blendFrames", "pairUp", "morphFrame", "rollFra
   "readLibrary", "writeLibrary", "libraryUpsert", "parseSequenceFile", "sequenceFileData", "cardsForSave", "makeCard", "seqDirty", "seqKey",
   "lookFileData", "readLookFile", "params", "fmt", "readTyped", "BY_ID", "rgbToOklab", "oklabToRgb", "oklabToLinear", "mixColour", "hexToRgb",
   "historyPush", "favouritesAdd", "shelfEntry", "parseFavouritesFile", "applyParams", "hist", "randomize",
-  "ringPre", "superR", "superShape", "mutate"];
+  "ringPre", "superR", "superShape", "mutate", "loopOf", "loopParts", "mulberry32", "tuneToLoop"];
 js = js.replace(hook, hook + "\nglobalThis.__t = {" + exposed.map(n => `get ${n}() { return ${n}; }`).join(", ") + "};");
 
 // In-memory localStorage whose behaviour the library tests can switch: normal, throwing
@@ -828,6 +828,130 @@ setTimeout(() => {
       }
     }
     check("dots sit evenly along each ring; lines keep their parameter steps", bad.length === 0, bad.join("; ") || "hopf, spirograph loops, star");
+  }
+
+  // One perfect loop of a look (loopOf): on seeded random looks with View motion thrown in, and
+  // every preset, the frame one loop later must be the frame now -- points and colours -- and
+  // the frame a third of the way through must not be (so the loop isn't vacuous). Looks that
+  // loopOf says don't loop are counted, and one is shown to really not repeat at any multiple
+  // of its longest part under the cap.
+  {
+    const rnd = t.mulberry32(2024), modes = ["off", "off", "swing", "turn", "turnRev"];
+    const looks = Object.entries(t.PRESETS).map(([n, p]) => [n, Object.assign(t.defaults(), p)]);
+    // Strips whose rings really are upside down after a lap (a heart; an odd wobble), and not.
+    looks.push(["strip heart", Object.assign(t.defaults(), { gen: "strip", base: "heart", drift: 0.6 })]);
+    looks.push(["strip odd wobble", Object.assign(t.defaults(), { gen: "strip", wobble: 0.2, lobes: 5, drift: 0.6 })]);
+    looks.push(["strip even star", Object.assign(t.defaults(), { gen: "strip", base: "star", sides: 6, drift: 0.6 })]);
+    looks.push(["strip 2 twists heart", Object.assign(t.defaults(), { gen: "strip", base: "heart", msTwists: 2, drift: 0.6 })]);
+    for (let s = 1; s <= 240; s++) {
+      const p = t.randomize(s * 977);
+      for (const a of ["yaw", "pitch", "roll"]) { p[a + "Mode"] = modes[Math.floor(rnd() * modes.length)]; p[a + "Period"] = +(1 + rnd() * 12).toFixed(1); }
+      if (rnd() < 0.2) p.draw = "dots";
+      if (rnd() < 0.3) p.loopColors = true;
+      if (rnd() < 0.15) p.speed = +(0.3 + rnd() * 2).toFixed(2);
+      looks.push([`seed ${s * 977}`, p]);
+    }
+    // Random looks rarely loop as they are (Drift 0.73 against Cycle 25...): Tune to loop nudges
+    // their parts to line up. Every tuned look must then loop, and no setting may move by more
+    // than a quarter (the biggest nudge: a part set to the nearest whole fraction of the loop).
+    let tuned = 0, untunable = 0, biggestNudge = 0; const tuneBad = [];
+    for (const [name, p] of looks.slice()) {
+      if (t.loopOf(p).secs !== null) continue;
+      const r = t.tuneToLoop(p);
+      if (!r) { untunable++; continue; }
+      tuned++;
+      // The nudge as each part's period change (a setting near 0, like Cycle 1, would read huge).
+      const before = t.loopParts(p), after = t.loopParts(r.params);
+      before.forEach((q, i) => { biggestNudge = Math.max(biggestNudge, Math.abs(after[i].period - q.period) / q.period); });
+      if (t.loopOf(r.params).secs === null) tuneBad.push(name);
+      looks.push([name + " tuned", r.params]);
+    }
+    check("Tune to loop makes a look loop with small nudges", tuneBad.length === 0 && tuned >= 100 && biggestNudge <= 0.26,
+      tuneBad.slice(0, 3).join("; ") || `${tuned} tuned (biggest nudge ${(100 * biggestNudge).toFixed(0)}%), ${untunable} can't be (fixed-rate Drift)`);
+    // Rings compared as the drawn picture: with their kaleidoscope copies laid on (Spin repeats the
+    // picture every 360 / copies degrees) and as sets of points (curveGap), since a ring can come
+    // back with its points numbered from a different start -- a Moebius strip ring is turned half
+    // a turn each lap -- and still be the same picture. Colours and brightness by ring.
+    const laid = (pts, copies) => { const out = [];
+      for (const cp of copies) { const c = Math.cos(cp.angle), s = Math.sin(cp.angle);
+        for (let j = 0; j < pts.length; j += 2) { const x = pts[j] * (cp.sx ?? 1), y = pts[j + 1]; out.push(c * x - s * y, s * x + c * y); } }
+      return out; };
+    // Same drawn picture, within about 0.3 px (chords' sag on the biggest rings at 360 points is
+    // 0.24), however each ring's points are placed along it: B's polylines are densified to
+    // 0.25 px and hashed into 0.3 px cells; every point of A must land in a cell with one of B's
+    // (and vice versa). Linear time, where point-to-segment distances took minutes.
+    const CELL = 0.3;
+    const cells = pts => { const m = new Set();
+      for (let j = 0; j + 3 < pts.length; j += 2) {
+        const sub = Math.max(1, Math.ceil(Math.hypot(pts[j + 2] - pts[j], pts[j + 3] - pts[j + 1]) / (CELL / 2)));  // by distance: the biggest rings' segments are tens of px
+        for (let i = 0; i < sub; i++) { const u = i / sub, x = pts[j] + u * (pts[j + 2] - pts[j]), y = pts[j + 1] + u * (pts[j + 3] - pts[j + 1]); if (Math.abs(x) < FRAME && Math.abs(y) < FRAME) m.add(Math.round(x / CELL) + "," + Math.round(y / CELL)); }
+      }
+      return m; };
+    // Only what the 600 px frame shows: the biggest Hopf rings run thousands of px off-screen,
+    // where a chord's sag is large and nothing is drawn.
+    const FRAME = 320;
+    const allNear = (pts, m) => { for (let j = 0; j < pts.length; j += 2) { if (Math.abs(pts[j]) >= FRAME || Math.abs(pts[j + 1]) >= FRAME) continue; const cx = Math.round(pts[j] / CELL), cy = Math.round(pts[j + 1] / CELL); let hit = false;
+        for (let dx = -1; dx <= 1 && !hit; dx++) for (let dy = -1; dy <= 1; dy++) if (m.has((cx + dx) + "," + (cy + dy))) { hit = true; break; }
+        if (!hit) return false; } return true; };
+    // Returns 0 when the pictures match (points by number, else by curve), else how far apart:
+    // by number when that is what differs, or 1 px meaning "off the other's curve".
+    const same = (A, B) => { let worst = 0;
+      A.rings.forEach((r, k) => { const q = B.rings[k];
+        let byIndex = 0; for (let j = 0; j < r.pts.length; j++) byIndex = Math.max(byIndex, Math.abs(r.pts[j] - q.pts[j]));
+        if (byIndex > 1e-6) {
+          const la = laid(r.pts, A.look.copies), lb = laid(q.pts, B.look.copies);
+          byIndex = allNear(la, cells(lb)) && allNear(lb, cells(la)) ? 0 : Math.max(1, byIndex);
+        }
+        worst = Math.max(worst, byIndex);
+        for (let c = 0; c < 3; c++) worst = Math.max(worst, Math.abs(r.rgb[c] - q.rgb[c])); worst = Math.max(worst, Math.abs(r.w - q.w)); });
+      return worst; };
+    let loops = 0, none = 0, worstSeam = 0, tooSimilar = 0; const bad = [], similarNames = [];
+    for (const [name, p] of looks) {
+      const L = t.loopOf(p);
+      if (L.secs === null) { none++; continue; }
+      loops++;
+      // At the page's own 360 points a ring: a loop can bring a ring back with its points elsewhere
+      // along the same curve (Hopf's turn, the harmonograph's phase symmetry), and the polylines
+      // then differ by their chords' sag -- 0.24 px on the biggest near-pole Hopf rings at 360
+      // (1.0 at 180, 0.07 at 720), and exactly 0 for looks whose points come back in place.
+      const t0 = 2.3 + (loops % 7), A = t.computeFrame(p, t0, 600, 360);
+      const seam = same(A, t.computeFrame(p, t0 + L.period, 600, 360)), third = same(A, t.computeFrame(p, t0 + L.period / 3, 600, 360));
+      worstSeam = Math.max(worstSeam, seam);
+      if (seam > 0.5) bad.push(`${name}: ${seam.toExponential(1)} px off after one loop (${L.secs.toFixed(1)} s)`);
+      if (third < 1e-3) { tooSimilar++; similarNames.push(`${name} (${p.gen}, ${L.parts.map(q => q.label).join("+")})`); }
+    }
+    check("one loop of a look brings every point and colour back exactly", bad.length === 0 && loops >= 150,
+      bad.slice(0, 3).join("; ") || `${loops} looping looks (worst seam ${worstSeam.toExponential(1)} px), ${none} with no loop under the cap`);
+    // A loop can still be longer than needed in rare symmetric cases the calculator doesn't fold
+    // (dots on a spirograph whose Drift and Spin turns add to a whole 360 / Points): allowed for
+    // at most 1% of looks, named so a regression in the common cases stays loud.
+    check("...and a third of a loop is a different picture (the loop is not vacuous)", tooSimilar <= loops / 100, `${tooSimilar} of ${loops} unchanged at a third${tooSimilar ? ": " + similarNames.join("; ") : ""}`);
+    // Slinky's Drift is a turn of the picture: Drift 0.7 (16.04 deg/s) against Spin -16.04 stands
+    // still, and Hopf's Drift likewise (the other way) when drawn as lines; as dots Hopf's takes
+    // its full cycle (the dots would crawl), so Drift and Spin are separate parts there.
+    const still = t.loopOf(Object.assign(t.defaults(), { gen: "slinky", drift: 0.7, spin: -0.4 * 0.7 * 180 / Math.PI, pitch: 30 }));
+    const hopfL = t.loopOf(Object.assign(t.defaults(), { gen: "hopf", drift: 0.7, spin: 0.4 * 0.7 * 180 / Math.PI }));
+    const hopfD = t.loopOf(Object.assign(t.defaults(), { gen: "hopf", drift: 0.7, spin: 0.4 * 0.7 * 180 / Math.PI, draw: "dots" }));
+    check("Slinky and Hopf Drift count as Spin (lines): they can cancel it; Hopf as dots keeps its own cycle",
+      still.secs === null && /Nothing/.test(still.why) && hopfL.secs === null && hopfD.parts.length === 2 && hopfD.secs !== null,
+      `slinky: ${still.why}; hopf lines: ${hopfL.why}; hopf dots: ${hopfD.parts.map(q => q.label).join("+")} loop ${hopfD.secs && hopfD.secs.toFixed(2)} s`);
+    // Straight on, Spin and a turning Roll add: Spin 9 with Roll turning once per 6.153846 s
+    // (58.5 deg/s) is one turn of 67.5 deg/s, a loop of 5.333 s, not Spin's 40 s; and Spin -58.5
+    // against that Roll cancels to nothing moving.
+    const sr = Object.assign(t.defaults(), { gen: "cover", drift: 0, spin: 9, rollMode: "turn", rollPeriod: 6.153846153846154 });
+    const SR = t.loopOf(sr), srSame = same(t.computeFrame(sr, 1, 600, 48), t.computeFrame(sr, 1 + SR.period, 600, 48));
+    const cancel = t.loopOf(Object.assign({}, sr, { spin: -360 / 6.153846153846154 }));
+    check("straight on, Spin and a turning Roll count as one turn (and can cancel)",
+      SR.parts.length === 1 && Math.abs(SR.period - 360 / 67.5) < 1e-9 && srSame < 0.05 && cancel.secs === null && /Nothing/.test(cancel.why),
+      `loop ${SR.period.toFixed(3)} s from ${SR.parts.map(q => q.label).join("+")}, seam ${srSame.toExponential(1)}; cancelled: ${cancel.why}`);
+    // A look whose parts can't line up: Drift 0.3 on Sphere spin (66.67 s) against Spin 7 (51.43 s)
+    // share no multiple under 600 s (their ratio is 14/9 x 10/12 ..., LCM 4200 s); loopOf must say so,
+    // and the frame must indeed differ at every multiple of the longer part under the cap.
+    const nl = Object.assign(t.defaults(), { gen: "sphere", drift: 0.3, spin: 7, cycle: 0, wobble: 0 });
+    const NL = t.loopOf(nl), A0 = t.computeFrame(nl, 1, 600, 48);
+    let repeats = 0;
+    for (let k = 1; k * 66.6667 <= 600; k++) if (same(A0, t.computeFrame(nl, 1 + k * 360 / 5.4, 600, 48)) < 1e-3) repeats++;
+    check("a look whose parts never line up is reported, and truly never repeats under the cap", NL.secs === null && /don't line up/.test(NL.why) && repeats === 0, `${NL.why || "loop " + NL.secs} / ${repeats} repeats`);
   }
 
   // Pendulum Period's log slider track: ends at 4 and 720 s, 30 s round-trips exactly and sits well

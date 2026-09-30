@@ -358,9 +358,11 @@ textarea {
           <option value="4">4 s clip</option>
           <option value="8" selected>8 s clip</option>
           <option value="16">16 s clip</option>
+          <option value="look">One loop of this look</option>
           <option value="seq">One sequence loop</option>
         </select>
         <button class="btn rec" id="saveVid" type="button" disabled>Record</button>
+        <button class="btn" id="tuneLoop" type="button" hidden title="Nudge Drift, Spin, Cycle, Lobe speed or a View motion to the nearest values whose cycles line up, so one loop of this look repeats exactly.">Tune to loop</button>
       </div>
       <div class="lib-save">
         <label for="seqName" class="dock-title">Sequence</label>
@@ -1704,7 +1706,9 @@ function tick(now) {
   const dt = Math.min(0.05, (now - lastTime) / 1000);
   lastTime = now;
   let drew = seq.playing;
-  if (seq.playing) {
+  if (recLoop) {
+    drew = false;  // the loop recorder draws on its own timer (recLoopStep)
+  } else if (seq.playing) {
     if (playing) {
       // Both looks in a blend share one animation clock (tau) whose rate blends between their
       // Time speed settings, so neither look freezes or jumps while it morphs.
@@ -1914,6 +1918,7 @@ function setParam(id, v, fromUI) {
   // Menus and toggles decide which rows show (a row's `when`: the generator's settings, Custom's
   // colours, a View motion axis's Swing and Seconds...), so any of them refreshes the whole panel.
   const needsLayout = BY_ID[id].type === "select" || BY_ID[id].type === "toggle";
+  updateLoopOption();
   if (!fromUI || needsLayout) syncUI();
   else {
     const it = inputs[id];
@@ -2169,6 +2174,7 @@ function seqUpdateRange() {
   const ok = seq.cards.length >= 2 && total > 0;
   seqPlayBtn.disabled = !ok && !seq.playing;
   seqPosEl.disabled = !ok;
+  updateLoopOption();
   const opt = document.querySelector('#recLen option[value="seq"]');
   opt.disabled = !ok;
   opt.textContent = ok ? `One sequence loop (${total.toFixed(1)} s)` : "One sequence loop (needs 2 looks)";
@@ -2218,6 +2224,162 @@ function startSeq(fromStart) {
   seqTickUI(true);
   renderSeqClasses();
 }
+
+// ---------- one perfect loop of a look ----------
+// Everything that moves in a look repeats after some time: each generator's Drift term, Wobble's
+// Lobe speed, Spin, Cycle, each View motion axis, the pendulum's Period. loopParts lists the ones
+// that are active, in the animation clock's units (seconds at Time speed 1), from the same formulas
+// ringPre, makeColorFn, look3d and viewAt use -- adding a time term to any of those means adding it
+// here (check-blend.js compares frames a loop apart on hundreds of looks). loopOf finds the shortest
+// time that is a whole number of every part (within a thousandth of a part), as clock seconds.
+// Each part: its label, period, and where it can be retuned (tuneToLoop) the setting to change
+// and how to set it for a wanted period; Two Lanes' and Transform again's Drift wobble at a
+// fixed rate whatever Drift is, so those can't be retuned.
+function loopParts(p) {
+  const parts = [], add = (label, period, id, set) => { if (Number.isFinite(period) && period > 0) parts.push({ label, period, id, set }); };
+  const d = p.drift, sg = v => v < 0 ? -1 : 1, R2D = 180 / Math.PI;
+  // Some shortcuts repeat the drawn curve but not where its points sit along it: fine for lines
+  // (a chord's width), but evenly spaced dots would crawl at the seam, so dots take the long way.
+  const dots = p.draw === "dots";
+  // Slinky's Drift carries every ring round the orbit, and Hopf's turns every fibre: both are
+  // exactly a turn of the whole picture about the ring axis, which is what Spin does, so they
+  // add to Spin below (and can cancel it) instead of counting as their own part.
+  // Spirograph's Drift turns the pen round the wheel, which is the curve turned the other way by
+  // 1 / Points of that (measured exact to a chord's width), unless Wobble reshapes it along th.
+  let driftSpin = 0;
+  if (d && p.gen === "slinky") driftSpin = 0.4 * d * R2D;
+  if (d && p.gen === "hopf" && !dots) driftSpin = -0.4 * d * R2D;
+  if (d && p.gen === "spiro" && !dots && !p.wobble) driftSpin = -0.8 * d * R2D / Math.round(p.spLobes);
+  // Harmonograph: shifting the x phase by 360 / fy x gcd(fx, fy) degrees gives the same curve
+  // (a third of a turn for 2:3), so Drift's cycle is that fraction of a full phase turn -- unless
+  // Wobble is on, which is shaped along the original parameter and breaks the symmetry.
+  const gcd = (a, b) => b ? gcd(b, a % b) : a, fx = Math.round(p.fx), fy = Math.round(p.fy);
+  const harmLap = dots || p.wobble ? 1 : gcd(fx, fy) / fy;
+  // Drift terms of the form C / Drift: retuned by setting Drift = C / period.
+  const driftC = { blend: 12, sphere: 20, harmono: harmLap * TAU / 0.6, hopf: TAU / 0.4, spiro: TAU / 0.8, loxo: p.mbSpread / 0.25,
+    // Moebius strip: after one lap round the loop a ring is back, but turned Half twists x 180
+    // degrees in its plane -- upside down for an odd count -- so unless the shape looks the same
+    // upside down (a circle, an even-sided polygon, an even wobble...) it takes two laps.
+    strip: (Math.round(p.msTwists) % 2 === 1 && !halfTurnSame(p) ? 2 : 1) * TAU / 0.3 }[p.gen];
+  if (p.gen === "cover") { if (d) add("Drift", TAU / 0.6); }
+  else if (p.gen === "again") { if (d && !p.closed) add("Drift", TAU / 0.7); }
+  else if (p.gen === "pendulum") add("Period", p.pwPeriod, "pwPeriod", (q, P) => { q.pwPeriod = P; });
+  else if (d && driftC && !driftSpin) add("Drift", driftC / d, "drift", (q, P) => { q.drift = driftC / P; });
+  if (p.wobble && p.wobbleSpeed && p.gen !== "hopf") add("Lobe speed", TAU / Math.abs(p.wobbleSpeed), "wobbleSpeed", (q, P) => { q.wobbleSpeed = sg(p.wobbleSpeed) * TAU / P; });
+  // Spin turns the rings about their own axis. Seen straight on (no yaw or pitch, still), that
+  // is a turn of the picture, which repeats every 360 / copies degrees when the kaleidoscope
+  // copies go round the full circle (each copy is the same rings); tilted, the two turns differ.
+  const straight = p.yaw === 0 && p.pitch === 0 && p.yawMode === "off" && p.pitchMode === "off";
+  const copySym = straight && p.copySpan === "full" ? Math.max(1, Math.round(p.mirror)) : 1;
+  // Spirograph rings are Points-fold symmetric about the axis (drawn as lines; dots shift), so a
+  // turn of 360 / Points is no change either; with the copies' symmetry, 360 / their lcm.
+  const ringSym = p.gen === "spiro" && !dots && !p.wobble ? Math.round(p.spLobes) : 1;
+  const sym = copySym * ringSym / gcd(copySym, ringSym);
+  // Straight on, a turning Roll is that same turn of the picture, so the two add into one rate
+  // (and can cancel); Roll is then part of Spin here rather than a View motion part below.
+  const rollTurn = straight && (p.rollMode === "turn" || p.rollMode === "turnRev") ? (p.rollMode === "turn" ? 360 : -360) / p.rollPeriod : 0;
+  const spinRate = p.spin + driftSpin + rollTurn;
+  // Retuned through Spin; with Spin at 0, through Drift if it turns, else the Roll's seconds.
+  if (spinRate) {
+    const label = [p.spin ? "Spin" : "", driftSpin ? "Drift" : "", rollTurn ? "roll" : ""].filter(Boolean).join(" + ");
+    const via = p.spin ? "spin" : driftSpin ? "drift" : "rollPeriod";
+    add(label, 360 / (Math.abs(spinRate) * sym), via, (q, P) => {
+      const W = sg(spinRate) * 360 / (P * sym);
+      if (via === "spin") q.spin = W - driftSpin - rollTurn;
+      else if (via === "drift") q.drift = (W - rollTurn) / (driftSpin / d);
+      else q.rollPeriod = P * sym;
+    });
+  }
+  // Cycle moves the colours one lap per 360 (in u): a lap of 1 with Loop colours, else Spectrum's
+  // hue wheel takes 1.2 and the ping-pong ramp 2; a one-colour Custom palette doesn't move.
+  if (p.cycle && !(p.palette === "custom" && p.colorA === p.colorB)) {
+    const lap = p.loopColors ? 1 : p.palette === "spectrum" ? 1.2 : 2;
+    add("Cycle", lap * 360 / Math.abs(p.cycle), "cycle", (q, P) => { q.cycle = sg(p.cycle) * lap * 360 / P; });
+  }
+  for (const a of ["yaw", "pitch", "roll"]) if (p[a + "Mode"] !== "off" && !(a === "roll" && rollTurn)) add(`${a[0].toUpperCase() + a.slice(1)} motion`, p[a + "Period"], a + "Period", (q, P) => { q[a + "Period"] = P; });
+  return parts;
+}
+// The look retuned so its parts line up: the loop is the longest part, or 2-6 of it, whichever
+// moves the other parts least (each set to the nearest whole fraction of it), and each setting
+// changed to give exactly that period (kept inside its slider's range). Returns the new look and
+// what changed, or null if it still can't loop (a fixed-rate part, or a setting hitting its end).
+function tuneToLoop(p) {
+  const parts = loopParts(p);
+  if (p.speed <= 0 || !parts.length || loopOf(p).secs !== null) return null;
+  // Candidate loops: whole multiples of a part that can't be retuned (else of the longest part),
+  // up to the cap. The shortest whose nudges stay under 8% wins; failing that, the gentlest.
+  const fixed = parts.filter(q => !q.set), base = fixed.length ? fixed[0].period : Math.max(...parts.map(q => q.period));
+  let best = null, gentle = null;
+  for (let k = 1; k * base / p.speed <= LOOP_CAP; k++) {
+    const T = k * base;
+    let worst = 0, ok = true;
+    for (const q of parts) {
+      const n = Math.max(1, Math.round(T / q.period)), want = T / n, rel = Math.abs(want - q.period) / q.period;
+      if (!q.set && rel > 1e-5) { ok = false; break; }
+      worst = Math.max(worst, rel);
+    }
+    if (!ok) continue;
+    if (worst <= 0.08) { best = { T, worst }; break; }
+    if (!gentle || worst < gentle.worst - 1e-9) gentle = { T, worst };
+  }
+  best = best || gentle;
+  if (!best) return null;
+  const q = Object.assign({}, p), changes = [];
+  for (const part of parts) {
+    if (!part.set) continue;
+    const n = Math.max(1, Math.round(best.T / part.period)), want = best.T / n;
+    if (Math.abs(want - part.period) / part.period <= 1e-9) continue;
+    part.set(q, want);
+    const s = BY_ID[part.id];
+    q[part.id] = clamp(q[part.id], s.min, s.max);
+    changes.push(`${s.label} ${fmt(s, p[part.id])} → ${fmt(s, q[part.id])}`);
+  }
+  if (loopOf(q).secs === null) return null;
+  return { params: q, changes, secs: loopOf(q).secs };
+}
+// Whether the base outline, wobble included, is the same shape turned half a turn.
+function halfTurnSame(p) {
+  const n = Math.round(p.sides), evenSided = n % 2 === 0;
+  const shape = { circle: true, infinity: true, heart: false, polygon: evenSided, star: evenSided, flower: evenSided,
+    super: Math.round(p.sfM) % 2 === 0 }[p.base];
+  return !!shape && (p.wobble === 0 || Math.round(p.lobes) % 2 === 0);
+}
+const LOOP_CAP = 600;  // seconds: past this, the parts are said not to line up
+function loopOf(p) {
+  const parts = loopParts(p);
+  if (p.speed <= 0) return { secs: null, parts, why: "Time speed is 0, so nothing moves." };
+  if (!parts.length) return { secs: null, parts, why: "Nothing in this look moves: turn up Drift, Spin, Cycle, Lobe speed or a View motion." };
+  const longest = Math.max(...parts.map(q => q.period)), tol = 1e-5;  // a seam under 0.02 px
+  const fits = T => parts.every(q => { const n = T / q.period; return Math.abs(n - Math.round(n)) <= tol; });
+  for (let k = 1; k * longest / p.speed <= LOOP_CAP; k++) {
+    const T = k * longest;
+    if (fits(T)) return { secs: T / p.speed, period: T, parts };
+  }
+  return { secs: null, parts, why: `Its parts don't line up within ${LOOP_CAP / 60} minutes (too long): ${parts.map(q => `${q.label} ${(q.period / p.speed).toFixed(2)} s`).join(", ")}. Tune to loop nudges them so they do.` };
+}
+function loopStatus(p) {
+  const L = loopOf(p);
+  if (L.secs === null) return `No exact loop. ${L.why}`;
+  const detail = L.parts.map(q => `${q.label} ${(q.period / p.speed).toFixed(2)} s × ${Math.round(L.period / q.period)}`).join(", ");
+  return `One loop of this look: ${L.secs.toFixed(2)} s (${detail}).`;
+}
+
+function updateLoopOption() {
+  const opt = document.querySelector('#recLen option[value="look"]');
+  if (!opt) return;
+  const L = loopOf(params);
+  opt.textContent = L.secs === null ? "One loop of this look (none: see below)" : `One loop of this look (${L.secs.toFixed(1)} s)`;
+  // Tune to loop shows only when that clip is chosen and the look doesn't loop as it is.
+  document.getElementById("tuneLoop").hidden = !(document.getElementById("recLen").value === "look" && L.secs === null && L.parts.length && params.speed > 0);
+}
+document.getElementById("recLen").addEventListener("change", e => { if (e.target.value === "look") statusEl.textContent = loopStatus(params); updateLoopOption(); });
+document.getElementById("tuneLoop").addEventListener("click", () => {
+  const tuned = tuneToLoop(params);
+  if (!tuned) { statusEl.textContent = "This look can't be tuned to loop: " + (loopOf(params).why || "a part runs at a fixed rate."); return; }
+  applyParams(tuned.params);
+  statusEl.textContent = `Tuned to loop every ${tuned.secs.toFixed(2)} s: ${tuned.changes.join(", ")}.`;
+});
+
 function stopSeq() {
   seq.playing = false;
   seqPlayBtn.textContent = "Play sequence";
@@ -2763,13 +2925,21 @@ let recording = false;
 document.getElementById("saveVid").addEventListener("click", () => {
   if (recording || !REC_MIME) return;
   const choice = document.getElementById("recLen").value;
-  const loop = choice === "seq";
+  const loop = choice === "seq", lookLoop = choice === "look";
   if (loop && (seq.cards.length < 2 || seqTotal() <= 0)) { statusEl.textContent = "Add at least two looks to record a sequence loop."; return; }
-  const secs = loop ? seqTotal() : parseInt(choice, 10);
+  let L = null;
+  if (lookLoop) {
+    if (seq.playing) { statusEl.textContent = "Stop the sequence first: this records one loop of the look being edited."; return; }
+    L = loopOf(params);
+    if (L.secs === null) { statusEl.textContent = loopStatus(params); return; }
+  }
+  const secs = loop ? seqTotal() : lookLoop ? L.secs : parseInt(choice, 10);
   const btn = document.getElementById("saveVid");
-  const stream = view.captureStream(60);
+  // One loop of a look is pushed frame by frame (recLoopStep) rather than filmed as it plays.
+  const stream = view.captureStream(lookLoop ? 0 : 60);
+  const mime = REC_MIME;
   let rec;
-  try { rec = new MediaRecorder(stream, { mimeType: REC_MIME, videoBitsPerSecond: 16e6 }); }
+  try { rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 16e6 }); }
   catch { statusEl.textContent = "This browser can't record the canvas."; return; }
   const chunks = [];
   rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
@@ -2777,10 +2947,25 @@ document.getElementById("saveVid").addEventListener("click", () => {
     recording = false;
     btn.textContent = "Record clip";
     stream.getTracks().forEach(t => t.stop());
-    const ext = REC_MIME.startsWith("video/mp4") ? "mp4" : "webm";
-    offer(`ring-loom-${stamp()}.${ext}`, new Blob(chunks, { type: REC_MIME }));
+    const ext = mime.startsWith("video/mp4") ? "mp4" : "webm";
+    offer(`ring-loom-${stamp()}${lookLoop ? "-loop" : ""}.${ext}`, new Blob(chunks, { type: mime }));
   };
   recording = true;
+  if (lookLoop) {
+    if (canExactLoop()) {
+      stream.getTracks().forEach(t => t.stop());
+      recordLoopExact(L, btn).then(out => {
+        recording = false; btn.textContent = "Record clip";
+        if (!out) { statusEl.textContent = "This browser's video encoder can't take a frame this size. Try a smaller window."; return; }
+        offer(`ring-loom-${stamp()}-loop.webm`, out.blob);
+      }).catch(err => {
+        recording = false; btn.textContent = "Record clip"; recLoop = null;
+        statusEl.textContent = `Couldn't record the loop: ${err && err.message ? err.message : err}`;
+      });
+      return;
+    }
+    startLoopRecording(L, rec, stream, btn); return;
+  }
   if (loop) startSeq(true);  // start at the first look so the clip is exactly one seamless loop
   else if (!playing) togglePlay();
   rec.start(250);
@@ -2791,6 +2976,142 @@ document.getElementById("saveVid").addEventListener("click", () => {
   const iv = setInterval(label, 250);
   setTimeout(() => { clearInterval(iv); rec.stop(); }, secs * 1000);
 });
+
+// One perfect loop of the look being edited, frame by frame: the loop (loopOf) is split into N
+// frames at LOOP_FPS, the clock set to each frame's exact time and the frame drawn and handed to
+// the recorder itself (track.requestFrame), so no frame repeats or is skipped, and frame N would
+// be frame 0 again. Frames are pushed at the video's rate as far as the machine keeps up; if it
+// can't, they arrive late but stay the right frames. Trails carry history, so with Trails on a
+// silent loop runs first and the recorded one starts with the same trails frame 0 would have
+// after it. Browsers without requestFrame get the same stepping filmed at 60 fps, which can
+// repeat or skip a frame at the seam. Afterwards the clock is left one loop on, the same place.
+const LOOP_FPS = 60;
+let recLoop = null;
+const loopFps = () => LOOP_FPS;
+function startLoopRecording(L, rec, stream, btn) {
+  const track = stream.getVideoTracks()[0], manual = typeof track.requestFrame === "function";
+  const N = Math.max(1, Math.round(L.secs * loopFps())), preroll = params.trails > 0 ? N : 0;
+  recLoop = { rec, track, manual, N, preroll, i: -preroll, t0: T, step: L.period / N, next: performance.now(), btn, started: false };
+  recLoopStep(performance.now());
+  statusEl.textContent = `Recording one loop of this look: ${N} frames at ${loopFps()} fps${preroll ? ", after a silent loop for the trails" : ""}${manual ? "" : " (this browser can't take frames one by one; the seam may repeat or skip one)"}.`;
+}
+
+// ---------- an exact loop: WebCodecs + a WebM writer ----------
+// MediaRecorder films the canvas on the wall clock and drops frames when it likes: handed 360
+// frames it kept 351, 357, 359 or 361 on different runs, so it can't make a seamless loop. Here
+// each frame is encoded itself (VideoEncoder) with its exact time, i / fps, and written into a
+// WebM by hand: N frames, no drops, no repeats, and it needn't run in real time. VP9 where the
+// encoder supports it, else VP8. Browsers without WebCodecs fall back to the MediaRecorder loop
+// (startLoopRecording), which says the seam may repeat or skip a frame.
+const canExactLoop = () => typeof VideoEncoder === "function" && typeof VideoFrame === "function";
+async function recordLoopExact(L, btn) {
+  const fps = loopFps(), N = Math.max(1, Math.round(L.secs * fps)), step = L.period / N, preroll = params.trails > 0 ? N : 0;
+  // Encoders want even sizes: an odd canvas is cropped by a pixel into a scratch canvas.
+  const W = view.width & ~1, H = view.height & ~1, t0 = T;
+  const src = (W === view.width && H === view.height) ? view : Object.assign(document.createElement("canvas"), { width: W, height: H });
+  const sctx = src === view ? null : src.getContext("2d");
+  let codec = null, codecId = null;
+  for (const [c, id] of [["vp09.00.10.08", "V_VP9"], ["vp8", "V_VP8"]]) {
+    try { if ((await VideoEncoder.isConfigSupported({ codec: c, width: W, height: H })).supported) { codec = c; codecId = id; break; } } catch {}
+  }
+  if (!codec) return null;
+  const chunks = [];
+  let failed = null;
+  const enc = new VideoEncoder({ output: chunk => chunks.push(chunk), error: e => { failed = e; } });
+  enc.configure({ codec, width: W, height: H, bitrate: 16e6, framerate: fps, latencyMode: "quality" });
+  const usec = i => Math.round(i * 1e6 / fps);
+  recLoop = { exact: true };  // tick leaves the drawing to us meanwhile
+  statusEl.textContent = `Recording one loop of this look: ${N} frames at ${fps} fps${preroll ? ", after a silent loop for the trails" : ""}, each frame in its exact place.`;
+  try {
+    for (let i = -preroll; i < N && !failed; i++) {
+      T = t0 + i * step;
+      draw();
+      if (i >= 0) {
+        if (sctx) sctx.drawImage(view, 0, 0);
+        const frame = new VideoFrame(src, { timestamp: usec(i), duration: usec(i + 1) - usec(i) });
+        enc.encode(frame, { keyFrame: i === 0 });
+        frame.close();
+        while (enc.encodeQueueSize > 8) await new Promise(r => setTimeout(r, 5));  // don't outrun the encoder
+      }
+      btn.textContent = i < 0 ? `Trails ${-i}` : `Frame ${i + 1}/${N}`;
+      if (i % 6 === 0) await new Promise(r => setTimeout(r, 0));  // keep the page responsive
+    }
+    await enc.flush();
+  } finally {
+    try { enc.close(); } catch {}
+    recLoop = null;
+    T = t0 + N * step;  // one loop on: the picture is where it started
+  }
+  if (failed) throw failed;
+  if (chunks.length !== N) throw new Error(`the encoder returned ${chunks.length} frames for ${N}`);
+  return { blob: muxWebm(chunks, W, H, fps, codecId), N, fps, codec: codecId };
+}
+// A minimal WebM (Matroska) writer for one video track: EBML header, Segment with Info, Tracks
+// and Clusters of SimpleBlocks (one per frame, keyframes flagged), 1 ms timecodes as WebM has.
+// Sizes are written as 8-byte vints, which any reader accepts. No Cues: players scrub without.
+function muxWebm(chunks, W, H, fps, codecId) {
+  const parts = [];
+  const vint8 = n => { const b = new Uint8Array(8); b[0] = 0x01; for (let i = 7; i > 0; i--) { b[i] = n & 0xff; n = Math.floor(n / 256); } return b; };
+  const idBytes = id => { const out = []; while (id > 0) { out.unshift(id & 0xff); id = Math.floor(id / 256); } return Uint8Array.from(out); };
+  const cat = arrs => { const n = arrs.reduce((a, b) => a + b.length, 0), out = new Uint8Array(n); let o = 0; for (const a of arrs) { out.set(a, o); o += a.length; } return out; };
+  const el = (id, payload) => cat([idBytes(id), vint8(payload.length), payload]);
+  const uint = (id, v) => { const out = []; do { out.unshift(v & 0xff); v = Math.floor(v / 256); } while (v > 0); return el(id, Uint8Array.from(out)); };
+  const str = (id, s) => el(id, new TextEncoder().encode(s));
+  const float = (id, v) => { const b = new Uint8Array(8); new DataView(b.buffer).setFloat64(0, v); return el(id, b); };
+  const header = el(0x1A45DFA3, cat([uint(0x4286, 1), uint(0x42F7, 1), uint(0x42F2, 4), uint(0x42F3, 8), str(0x4282, "webm"), uint(0x4287, 4), uint(0x4285, 2)]));
+  const ms = i => Math.round(i * 1000 / fps);
+  const info = el(0x1549A966, cat([uint(0x2AD7B1, 1000000), str(0x4D80, "Ring Loom"), str(0x5741, "Ring Loom"), float(0x4489, ms(chunks.length))]));
+  const tracks = el(0x1654AE6B, el(0xAE, cat([uint(0xD7, 1), uint(0x73C5, 1), uint(0x83, 1), str(0x86, codecId), el(0xE0, cat([uint(0xB0, W), uint(0xBA, H)]))])));
+  const clusters = [];
+  let blocks = [], clusterAt = 0;
+  const flushCluster = () => { if (blocks.length) clusters.push(el(0x1F43B675, cat([uint(0xE7, clusterAt), ...blocks]))); blocks = []; };
+  chunks.forEach((chunk, i) => {
+    const t = ms(i);
+    if (i === 0 || t - clusterAt > 30000) { flushCluster(); clusterAt = t; }
+    const data = new Uint8Array(chunk.byteLength); chunk.copyTo(data);
+    const rel = t - clusterAt, head = Uint8Array.from([0x81, (rel >> 8) & 0xff, rel & 0xff, chunk.type === "key" ? 0x80 : 0x00]);
+    blocks.push(el(0xA3, cat([head, data])));
+  });
+  flushCluster();
+  return new Blob([header, el(0x18538067, cat([info, tracks, ...clusters]))], { type: "video/webm" });
+}
+
+// One frame per call, on its own timer (not the animation frame, which follows the display's
+// refresh rate and stops when the tab is hidden): each frame is scheduled 1 / LOOP_FPS after the
+// previous one was due, so the recorder's clock sees the video's rate as far as the machine keeps up.
+function recLoopStep(now) {
+  const R = recLoop;
+  if (!R) return false;
+  if (R.i >= R.N) {
+    recLoop = null;
+    T = R.t0 + R.N * R.step;  // one loop on: the picture is where it started
+    setTimeout(() => R.rec.stop(), 150);  // let the last frame in
+    return false;
+  }
+  T = R.t0 + R.i * R.step;
+  draw();
+  // The recorder starts with the first real frame, after the trails pre-roll: started earlier,
+  // its clock ran through the pre-roll and the clip held its first frame that long.
+  if (R.i >= 0 && !R.started) {
+    // The canvas now shows frame 0. Starting, the recorder takes a frame of its own (that one),
+    // and frames handed over in its first moments were dropped (351 of 360 arrived), so it is
+    // paused for 400 ms to settle -- paused time isn't on the recording's clock, so frame 0 isn't
+    // held -- then resumed, and frames 1.. are handed over from there (measured: 360 frames,
+    // all distinct, evenly spaced).
+    R.rec.start(250); R.started = true;
+    R.rec.pause();
+    const warm = 400;
+    R.next = now + warm;
+    setTimeout(() => { R.rec.resume(); R.i = 1; R.next = performance.now() + 1000 / loopFps(); setTimeout(() => recLoopStep(performance.now()), 1000 / loopFps()); }, warm);
+    return true;
+  }
+  if (R.i >= 0 && R.manual) R.track.requestFrame();
+  R.btn.textContent = R.i < 0 ? `Trails ${-R.i}` : `Frame ${R.i + 1}/${R.N}`;
+  R.i++;
+  R.next = Math.max(now, R.next + 1000 / loopFps());
+  setTimeout(() => recLoopStep(performance.now()), Math.max(0, R.next - performance.now()));
+  return true;
+}
 
 // Outside claude.ai (e.g. the Vercel copy) there is no save prompt, so files go straight to the
 // browser's downloads.

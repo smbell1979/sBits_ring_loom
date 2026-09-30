@@ -139,6 +139,19 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
   numbers; the field flashes when it used something other than what was typed.
 - **Save** a PNG frame, an SVG of the current lines, or a video clip, including exactly one loop
   of the sequence.
+- **One loop of this look** records a seamless loop of the look being edited. Everything that
+  moves has a period (each generator's Drift, Lobe speed, Spin, Cycle, each View motion, the
+  pendulum's Period, over Time speed); the loop is the shortest time that is a whole number of
+  every one, allowing that some are the same motion (straight on, Spin and a turning Roll add;
+  Slinky's, Hopf's and Spirograph's Drift are turns too) and that some pictures repeat sooner
+  (kaleidoscope copies straight on, a spirograph's Points-fold symmetry, a harmonograph's phase
+  symmetry, a Möbius strip's half turn). The menu shows the length, or that the parts don't line
+  up within 10 minutes: **Tune to loop** then nudges them (a few percent) to the nearest values
+  that do. The clip is written frame by frame with WebCodecs into a WebM: N frames at 60 fps,
+  each at its exact time, none repeated or dropped, frame N being frame 0 again; with Trails on
+  a silent loop runs first so the seam carries the same trails. Browsers without WebCodecs
+  record it the ordinary way, which can repeat or skip a frame at the seam (Chrome kept 351,
+  357, 359 or 361 of 360 frames on different runs).
 - **Settings code** copies the exact look as JSON so it can be pasted back later.
 
 Drag the canvas to orbit the view, shift-drag to roll it; double-click resets it. Space plays and pauses.
