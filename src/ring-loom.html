@@ -314,6 +314,25 @@ textarea {
   .stage { max-height: calc(100vh - 32px); top: 16px; align-self: start; box-shadow: none; }
   @supports (height: 100dvh) { .stage { max-height: calc(100dvh - 32px); } }
 }
+
+/* Help: an overlay of notes (looping, formats, generators, keys), opened by the ? button or key. */
+.help { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--fg); padding: 0; width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 48px); }
+.help::backdrop { background: rgba(5, 6, 10, 0.72); }
+.help-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px 10px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); }
+.help-head h2 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 22px; }
+.help-nav { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 8px 18px 0; font-size: 12.5px; }
+.help-nav a { color: var(--accent); text-decoration: none; }
+.help-body { padding: 4px 18px 18px; font-size: 13.5px; line-height: 1.5; }
+.help-body h3 { font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 22px 0 8px; }
+.help-body p, .help-body li { margin: 6px 0; }
+.help-body ul { padding-left: 20px; margin: 4px 0; }
+.help-body table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 13px; }
+.help-body th, .help-body td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.help-body th { color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.08em; }
+.help-body td:nth-child(2), .help-body td:nth-child(3) { font-family: var(--mono); font-size: 12px; }
+.help-body kbd { font-family: var(--mono); font-size: 11.5px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 3px; padding: 1px 5px; }
+.help-body .now { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12.5px; }
+.help-body .now b { color: var(--accent); font-weight: 500; }
 </style>
 
 <div class="app">
@@ -374,6 +393,7 @@ textarea {
           <button class="btn primary" id="play" type="button">Pause<kbd>space</kbd></button>
           <button class="btn" id="random" type="button">Randomize<kbd>R</kbd></button>
           <button class="btn" id="mutate" type="button">Mutate<kbd>M</kbd></button>
+          <button class="btn" id="helpBtn" type="button" title="Notes: making loops shorter, clip formats, the generators, keys.">?<kbd>?</kbd></button>
         </div>
         <div class="seed">
           <label for="seedIn">Seed</label>
@@ -438,6 +458,62 @@ textarea {
     </div>
   </aside>
 </div>
+
+<dialog class="help" id="help" aria-label="Help">
+  <div class="help-head"><h2>Ring Loom notes</h2><button class="btn" id="helpClose" type="button">Close<kbd>esc</kbd></button></div>
+  <nav class="help-nav"><a href="#help-loop">Looping</a><a href="#help-clips">Clips &amp; files</a><a href="#help-gens">Generators</a><a href="#help-look">Trails, glow, dots</a><a href="#help-keys">Keys</a></nav>
+  <div class="help-body">
+    <h3 id="help-loop">Making a look loop, and loop shorter</h3>
+    <p class="now" id="helpNow"></p>
+    <p>A loop is the least common multiple of every moving part's period, so: <b>fewer moving parts, and periods that are multiples of each other.</b> The clip menu shows the loop length live as you adjust. Halves and thirds are fine (6 s parts inside a 12 s loop); 12 against 10 makes 60 s, 12 against 7 makes 84 s.</p>
+    <table>
+      <tr><th>Part</th><th>Period (s, at Time speed 1)</th><th>Short, tidy values</th></tr>
+      <tr><td>Spin</td><td>360 / Spin</td><td>30 → 12 s · 60 → 6 s · 90 → 4 s</td></tr>
+      <tr><td>Cycle, Loop colours on</td><td>360 / Cycle</td><td>30 → 12 s · 60 → 6 s</td></tr>
+      <tr><td>Cycle, Loop colours off</td><td>720 / Cycle (Spectrum: 432 / Cycle)</td><td>60 → 12 s</td></tr>
+      <tr><td>View motion, each axis</td><td>its Seconds</td><td>type 12, 6, 4…</td></tr>
+      <tr><td>Pendulum wave</td><td>its Period</td><td>type it</td></tr>
+      <tr><td>Lobe speed (with Wobble)</td><td>6.283 / Lobe speed</td><td>0.524 → 12 s · 1.047 → 6 s</td></tr>
+      <tr><td>Drift, Sphere spin</td><td>20 / Drift</td><td>1 → 20 s · 2 → 10 s</td></tr>
+      <tr><td>Drift, Two-ellipse blend</td><td>12 / Drift</td><td>1 → 12 s</td></tr>
+      <tr><td>Drift, Loxodromic spiral</td><td>4 × Spread / Drift</td><td>Spread 6, Drift 2 → 12 s</td></tr>
+      <tr><td>Drift, Möbius strip</td><td>20.9 / Drift (×2: odd twist on a lopsided shape)</td><td>2 → 10.5 s</td></tr>
+      <tr><td>Drift, Slinky / Hopf / Spirograph</td><td>counts as extra Spin (it is a turn)</td><td>set Spin instead</td></tr>
+      <tr><td>Drift, Harmonograph</td><td>10.5 / Drift, ÷ its fx:fy symmetry</td><td>Tune to loop</td></tr>
+      <tr><td>Drift, Two Lanes / Transform again</td><td>fixed: 10.47 s / 8.98 s whatever Drift is</td><td>build on multiples of these, or Drift 0</td></tr>
+    </table>
+    <p><b>A recipe for a 12 s loop:</b> turn off what you don't need (Cycle 0, Lobe speed 0, View motions Off); set what's left to the same number (View motion 12 s, Spin 30, Cycle 30 with Loop colours on, Pendulum Period 12); then <b>Tune to loop</b> nudges the rest, Drift included, by a few percent to fit. <b>Time speed</b> divides everything: doubling it halves the loop, motion and all.</p>
+    <p>Some pictures repeat sooner than their parts: kaleidoscope copies straight on, a spirograph's Points-fold symmetry, a harmonograph's phase symmetry, a Möbius strip's half turn on a symmetric shape. The calculator folds those in. Straight on, Spin and a turning Roll are one rotation and add (or cancel).</p>
+
+    <h3 id="help-clips">Clips &amp; files</h3>
+    <ul>
+      <li><b>Clips</b> are rendered frame by frame at a constant 60 fps with an exact frame count, not filmed, so they needn't play in real time. <b>MP4 · H.264</b> is a plain file that Nuke, Resolve, Premiere and phones read. <b>WebM · VP9</b> is smaller. <b>PNG frames · zip</b> is a numbered, lossless sequence (background painted in) for compositing. A 2-minute MP4 is about 250 MB and is held in memory until saved; PNG frames run to gigabytes, so keep those short.</li>
+      <li><b>One loop of this look</b> is seamless: frame N is frame 0 again, no frame repeated or dropped; with Trails on, a silent loop runs first so the seam carries the same trails. <b>One sequence loop</b> is exact in length, but its seam only matches if the looks' own motions happen to line up over the sequence: each look's clock runs on through the whole sequence.</li>
+      <li><b>Look file</b> saves the look on screen as .ringloom.json; <b>To file</b> the whole sequence. Both open here, or in Houdini through the Ring Loom SOP. <b>Save</b> keeps a sequence in this browser only.</li>
+      <li><b>SVG</b> is the current frame as vector paths (or dots), without glow or trails, for Illustrator or After Effects. <b>PNG</b> is the frame as shown.</li>
+    </ul>
+
+    <h3 id="help-gens">Generators</h3>
+    <ul>
+      <li><b>Two Lanes (measured)</b>: 31 ellipses measured from the album cover. <b>Two-ellipse blend</b>: a start ellipse morphing into an end one; Spacing crowds the rings toward one end. <b>Transform again</b>: each ring is the previous one squashed and turned.</li>
+      <li><b>Sphere spin</b>: rings turned about a tilted axis. <b>Slinky</b>: rings strung around an orbit. <b>Harmonograph</b>: Lissajous loops with a phase step per ring. <b>Pendulum wave</b>: rings of the base shape, each swinging one more time per Period than the last, all back in line at the end of every Period.</li>
+      <li><b>Hopf fibration</b>: each ring a fibre of the 3-sphere, projected: exact circles, every pair linked once. <b>Spirograph</b>: a pen on a wheel rolling inside or outside the ring; Pen 1 gives sharp points, more gives loops. <b>Loxodromic spiral</b>: the base shape carried along one Möbius transformation, streaming out of one pole into the other (a tight Twist with big rings swings some into huge arcs: the true image). <b>Möbius strip</b>: rings round a loop, their long axes turning half a turn per trip.</li>
+      <li><b>One full turn</b> (Slinky, Sphere spin, Transform again, Harmonograph) spaces the rings by their count over exactly one cycle, so the last never lands on the first. <b>Superformula</b> as a base shape works with every generator; odd Symmetry with unequal Shape A/B is drawn over two turns to close.</li>
+    </ul>
+
+    <h3 id="help-look">Trails, glow, dots</h3>
+    <ul>
+      <li><b>Trails</b> keep the lines from frame to frame, fading toward black exactly (they always reach 0); the glow is made afresh each frame from the trailed picture, so it can't build up into a wash, and the ribbons glow too.</li>
+      <li><b>Dots</b> draws each ring's points with nothing between, spaced evenly along the ring; Smoothness is then the dots per ring, so lower it to space them out.</li>
+      <li><b>Ring fade</b> dims rings toward one end, both, or the middle; on the Loxodromic spiral it follows the place along the spiral rather than the ring.</li>
+      <li><b>Kaleidoscope</b> copies the picture round the circle (or a half), <b>Mirror copies</b> giving each a flipped twin.</li>
+    </ul>
+
+    <h3 id="help-keys">Keys</h3>
+    <p><kbd>space</kbd> play / pause · <kbd>R</kbd> randomize · <kbd>M</kbd> mutate · <kbd>F</kbd> favourite · <kbd>?</kbd> these notes · drag the canvas to orbit, shift-drag to roll, double-click to reset the view.</p>
+  </div>
+</dialog>
+
 
 <script>
 (() => {
@@ -2018,11 +2094,25 @@ window.addEventListener("keydown", e => {
   // (Key events can also arrive aimed at the document or window, which have no .matches.)
   if (e.target instanceof Element && e.target.matches("input[type=text], input[type=number], textarea, select")) return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (helpEl.open && e.key !== "?") return;  // reading the notes: keys stay with the dialog (Esc closes it)
   if (e.code === "Space") { e.preventDefault(); togglePlay(); }
   else if (e.key === "r" || e.key === "R") doRandom();
   else if (e.key === "m" || e.key === "M") doMutate();
   else if (e.key === "f" || e.key === "F") favAddCurrent();
+  else if (e.key === "?") { if (helpEl.open) closeHelp(); else openHelp(); }
 });
+
+// ---------- help ----------
+const helpEl = document.getElementById("help");
+function openHelp() {
+  document.getElementById("helpNow").innerHTML = seq.playing ? "The sequence is playing; stop it to see this look's parts." : loopStatus(params).replace(/^([^.:]*[.:])/, "<b>$1</b>");
+  if (typeof helpEl.showModal === "function") helpEl.showModal(); else helpEl.setAttribute("open", "");
+}
+function closeHelp() { if (helpEl.open) helpEl.close(); }
+document.getElementById("helpBtn").addEventListener("click", openHelp);
+document.getElementById("helpClose").addEventListener("click", closeHelp);
+helpEl.addEventListener("click", e => { if (e.target === helpEl) closeHelp(); });  // the backdrop
+
 
 // Drag to orbit the view.
 let drag = null;

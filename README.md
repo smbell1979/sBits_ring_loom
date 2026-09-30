@@ -161,6 +161,9 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
   ordinary way, which can repeat or skip a frame at the seam (Chrome kept 351, 357, 359 or 361
   of 360 frames on different runs).
 - **Settings code** copies the exact look as JSON so it can be pasted back later.
+- **?** (the button by Randomize, or the key) opens the notes: how to make a look loop and loop
+  shorter (each moving part's period and tidy values, with the current look's parts shown live),
+  clip formats and files, the generators, trails, glow and dots, and the keys. Esc closes.
 - **Trails** keep the lines from frame to frame in their own buffer over black, fading toward
   black by colour with exactly one level taken off each frame, so faded pixels always reach 0
   (an alpha fade stalled at 15/255 at Trails 0.97 and left a grey disc out to the rings' reach).
