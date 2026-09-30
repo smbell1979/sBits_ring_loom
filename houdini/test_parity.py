@@ -64,6 +64,10 @@ def main(path):
         if len(got) != len(ref["copies"]) or any(abs(a - b[0]) > W_TOL or abs(w - b[1]) > W_TOL or abs(sx - b[2]) > W_TOL
                                                   for (a, w, sx), b in zip(got, ref["copies"])):
             fails.append(f"{label}: kaleidoscope copies {got} vs page {ref['copies']}")
+        if "look" in ref:
+            for key, val in ref["look"].items():
+                if abs(frame["look"][key] - val) > W_TOL:
+                    fails.append(f"{label}: look {key} {frame['look'][key]} vs page {val}")
         return worst
 
     # 2. Every look at several moments.

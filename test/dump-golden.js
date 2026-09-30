@@ -38,6 +38,7 @@ const round = a => Array.from(a, v => +v.toFixed(5));
 const frameOut = f => ({
   rings: f.rings.map(r => ({ pts: round(r.pts), rgb: r.rgb.map(v => +v.toFixed(6)), w: +r.w.toFixed(9) })),
   copies: f.look.copies.map(c => [+c.angle.toFixed(9), +c.w.toFixed(9), +c.sx.toFixed(9)]),
+  look: { width: f.look.width, dots: f.look.dots, dot: f.look.dot },
 });
 
 // Looks: every preset, the opening look, and seeded random looks (all generators and base shapes).
@@ -114,6 +115,8 @@ looks.push(["strip flat", Object.assign(t.defaults(), { gen: "strip", rings: 30,
 looks.push(["strip 3 twists star", Object.assign(t.defaults(), { gen: "strip", base: "star", sides: 5, rings: 20, msTwists: 3, msFlat: 0.5, wobble: 0.15, drift: 0.9, pitch: 65 })]);
 // Two-ellipse blend Spacing either side of 1 (below 1 is the mirrored curve).
 for (const ease of [0.3, 0.8, 2.6]) looks.push([`blend spacing ${ease}`, Object.assign(t.defaults(), { gen: "blend", rings: 17, ease })]);
+// Drawn as dots (the look values ride along in frameOut), with kaleidoscope copies and fade.
+looks.push(["dots", Object.assign(t.defaults(), { gen: "slinky", rings: 14, draw: "dots", dotSize: 4.5, res: 96, mirror: 3, fade: 0.5 })]);
 looks.push(["roll+mirror", Object.assign(t.defaults(), { gen: "slinky", roll: 75, pitch: 30, mirror: 5, rings: 20 })]);
 
 const cases = [];
@@ -164,6 +167,7 @@ const blendPairs = [
   ["spirograph -> pendulum", flat({ gen: "spiro", rings: 20, spMode: "epi", spLobes: 6 }), flat({ gen: "pendulum", rings: 14, base: "polygon", sides: 4, pitch: 30 }), { stagger: -0.3, swirl: 90 }],
   ["strip -> loxo", flat({ gen: "strip", rings: 30, pitch: 45 }), flat({ gen: "loxo", rings: 20 }), { swirl: 120, ease: "smooth" }],
   ["loxo -> pendulum", flat({ gen: "loxo", rings: 20, base: "star", drift: 0.6 }), flat({ gen: "pendulum", rings: 12, pitch: 40 }), { stagger: 0.4, ease: "smooth" }],
+  ["lines -> dots", flat({ gen: "cover", rings: 19 }), flat({ gen: "spiro", rings: 12, draw: "dots", dotSize: 6 }), { ease: "smooth" }],
   ["all together", flat({ gen: "harmono", rings: 12, roll: 20, mirror: 4 }), flat({ gen: "cover", rings: 19, roll: -100 }), { turns: 1, stagger: -0.55, swirl: 180, ease: "out" }],
 ];
 const blends = [];

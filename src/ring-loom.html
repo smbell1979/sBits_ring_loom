@@ -520,7 +520,8 @@ const SCHEMA = [
   { id: "sfN3", group: "shape", label: "Shape B", type: "range", min: 0.2, max: 20, step: 0.01, def: 7, r: [0.5, 12], onBase: "super", when: p => p.base === "super", idle: IDLE_HARMONO,
     tip: "Shapes the other side of each repeat. Unequal to Shape A makes the repeats lopsided." },
   { id: "rings", group: "shape", label: "Rings", type: "range", min: 2, max: 140, step: 1, def: 31, r: [18, 90] },
-  { id: "res", group: "shape", label: "Smoothness", type: "range", min: 48, max: 720, step: 8, def: 360, r: null },
+  { id: "res", group: "shape", label: "Smoothness", type: "range", min: 48, max: 720, step: 8, def: 360, r: null,
+    tip: "Points per ring. Drawing Dots, that's the dots per ring." },
   { id: "wobble", group: "shape", label: "Wobble", type: "range", min: 0, max: 0.45, step: 0.005, def: 0, r: [0.02, 0.22], rp: 0.5, idle: IDLE_HOPF_WOBBLE },
   { id: "lobes", group: "shape", label: "Lobes", type: "range", min: 0, max: 24, step: 1, def: 5, r: [2, 12], idle: IDLE_NO_WOBBLE },
   { id: "ringPhase", group: "shape", label: "Lobe shift", type: "range", min: 0, max: 0.5, step: 0.001, def: 0.03, r: [0, 0.2], idle: IDLE_NO_WOBBLE },
@@ -660,7 +661,13 @@ const SCHEMA = [
   { id: "loopColors", group: "look", label: "Loop colours", type: "toggle", def: false,
     tip: "Colours go round the rings and join up: through the palette and back (Spectrum: once round the hue wheel), so the last ring's colour meets the first's without a seam." },
   { id: "cycle", group: "look", label: "Cycle °/s", type: "range", min: -120, max: 120, step: 1, def: 0, r: [-60, 60], rp: 0.6 },
-  { id: "width", group: "look", label: "Line width", type: "range", min: 0.25, max: 5, step: 0.05, def: 1.1, r: [0.5, 2.2] },
+  // Dots: each ring's points drawn as dots with nothing between (Smoothness is then the dots per
+  // ring). Not randomized, so seeds are unchanged; a blend between the two crossfades them.
+  { id: "draw", group: "look", label: "Draw", type: "select", def: "lines", options: { lines: "Lines", dots: "Dots" },
+    tip: "Lines joins each ring's points; Dots draws just the points. With Dots, Smoothness sets how many dots each ring has: lower it to space them out." },
+  { id: "width", group: "look", label: "Line width", type: "range", min: 0.25, max: 5, step: 0.05, def: 1.1, r: [0.5, 2.2],
+    idle: p => p.draw === "dots" ? "No effect while drawing dots (see Dot size)." : null },
+  { id: "dotSize", group: "look", label: "Dot size", type: "range", min: 0.5, max: 12, step: 0.05, def: 3, r: null, when: p => p.draw === "dots" },
   { id: "alphaL", group: "look", label: "Opacity", type: "range", min: 0.05, max: 1, step: 0.01, def: 0.85, r: [0.4, 1] },
   // Ring fade: a brightness ramp across the rings (fadeWeight). Not randomized (r: null), so seeds
   // are unchanged by it.
@@ -704,6 +711,7 @@ const PRESETS = {
   "Möbius strip": { gen: "strip", rings: 90, msRadius: 0.62, msWidth: 0.34, msFlat: 0.12, msTwists: 1, drift: 0.3, pitch: 55, yaw: 20, persp: 0.45, palette: "aurora", loopColors: true, glow: 7, width: 0.9 },
   "Loxodromic spiral": { gen: "loxo", rings: 64, mbSpread: 7.5, mbTwist: 1.4, mbSize: 0.4, drift: 0.5, palette: "spectrum", loopColors: true, glow: 7, width: 0.9, zoom: 0.9 },
   "Pendulum wave": { gen: "pendulum", rings: 24, pwPeriod: 30, pwSwings: 6, pwSwing: 60, pwShrink: 0.6, base: "polygon", sides: 6, pitch: 20, persp: 0.4, palette: "aurora", glow: 7, width: 1 },
+  "Dotted torus": { gen: "slinky", rings: 60, res: 64, draw: "dots", dotSize: 3.5, tilt: 82, loops: 1, orbitR: 0.42, ringR: 0.48, drift: 0.5, pitch: 38, persp: 0.55, palette: "deepsea", glow: 2 },
   "Superformula bloom": { gen: "again", base: "super", sfM: 6, sfN1: 0.9, sfN2: 6, sfN3: 9, rings: 34, squashA: 0.94, stretchA: 0.99, turn: 4, drift: 0.5, palette: "ember", glow: 6, width: 0.9, alphaL: 0.7 },
 };
 // Opening look: Scott's pick -- seed 33510, then view nudged (yaw 9, pitch -3) and trails 0.88.
@@ -1286,6 +1294,7 @@ function look3d(p, time, M) {
     view: { pitch: vm.pitch, yaw: vm.yaw, roll: vm.roll, pitchTurns: vm.pitchTurns, rotate: p.rotate, spin: p.spin },
     cam: { k: perspK(p.persp), zoom: p.zoom },
     look: { width: p.width, alpha: p.alphaL, glow: p.glow, trails: p.trails, additive: p.additive,
+            dots: p.draw === "dots" ? 1 : 0, dot: p.dotSize,
             bg: hexToRgb(p.bg), copies: kaleidoCopies(p) },
   };
 }
@@ -1473,6 +1482,8 @@ function blendFrames(fa, fb, t, ringT, turns, tau0, matches, views0) {
     look: {
       width: lerp(la.width, lb.width, t), alpha: lerp(la.alpha, lb.alpha, t),
       glow: lerp(la.glow, lb.glow, t), trails: lerp(la.trails, lb.trails, t),
+      // Lines to dots: drawn as both, the lines fading out as the dots fade in (renderFrame).
+      dots: lerp(la.dots, lb.dots, t), dot: lerp(la.dot, lb.dot, t),
       // The one setting that cannot be part-way: a line is either light-blended or not.
       additive: t < 0.5 ? la.additive : lb.additive,
       bg: mixColour(la.bg, lb.bg, t), copies,
@@ -1558,20 +1569,46 @@ function renderFrame(f) {
     }
     return pathSets.get(sx);
   };
+  // Dots: one path of circles per ring, skipping the last point, which repeats the first (a dot
+  // drawn twice would be brighter). Lines and dots are both drawn while a blend crosses between
+  // them, weighted by L.dots (0 lines, 1 dots).
+  const dotSets = new Map();
+  const dotsFor = sx => {
+    if (!dotSets.has(sx)) {
+      const r = L.dot / 2;
+      dotSets.set(sx, f.rings.map(ring => {
+        const path = new Path2D();
+        for (let j = 0; j < ring.pts.length - 2; j += 2) { const x = ring.pts[j] * sx, y = ring.pts[j + 1]; path.moveTo(x + r, y); path.arc(x, y, r, 0, TAU); }
+        return path;
+      }));
+    }
+    return dotSets.get(sx);
+  };
   const hex = f.rings.map(r => rgbToHex(...r.rgb));
   lctx.setTransform(1, 0, 0, 1, 0, 0);
   lctx.clearRect(0, 0, W, H);
   lctx.globalCompositeOperation = L.additive ? "lighter" : "source-over";
   lctx.lineJoin = "round";
+  const dots = clamp(L.dots || 0, 0, 1);
   for (const cp of L.copies) {
-    const paths = pathsFor(cp.sx ?? 1);
     lctx.setTransform(dpr, 0, 0, dpr, W / 2, H / 2);
     lctx.rotate(cp.angle);
-    lctx.lineWidth = L.width;
-    for (let i = 0; i < paths.length; i++) {
-      lctx.globalAlpha = clamp(L.alpha * f.rings[i].w * cp.w, 0, 1);
-      lctx.strokeStyle = hex[i];
-      lctx.stroke(paths[i]);
+    if (dots < 1) {
+      const paths = pathsFor(cp.sx ?? 1);
+      lctx.lineWidth = L.width;
+      for (let i = 0; i < paths.length; i++) {
+        lctx.globalAlpha = clamp(L.alpha * f.rings[i].w * cp.w * (1 - dots), 0, 1);
+        lctx.strokeStyle = hex[i];
+        lctx.stroke(paths[i]);
+      }
+    }
+    if (dots > 0) {
+      const paths = dotsFor(cp.sx ?? 1);
+      for (let i = 0; i < paths.length; i++) {
+        lctx.globalAlpha = clamp(L.alpha * f.rings[i].w * cp.w * dots, 0, 1);
+        lctx.fillStyle = hex[i];
+        lctx.fill(paths[i]);
+      }
     }
   }
 
@@ -2654,20 +2691,36 @@ document.getElementById("saveSvg").addEventListener("click", () => {
   if (!f) return;
   // x scaled by sx for mirrored twins, in the path data so stroke width stays even (renderFrame).
   const d = (pts, sx) => { let s = "M" + (pts[0] * sx).toFixed(1) + " " + pts[1].toFixed(1); for (let j = 2; j < pts.length; j += 2) s += "L" + (pts[j] * sx).toFixed(1) + " " + pts[j + 1].toFixed(1); return s; };
-  const L = f.look;
+  const L = f.look, dots = clamp(L.dots || 0, 0, 1);
+  // Dots as one path of circles per ring (two half-circle arcs each), skipping the repeated last
+  // point, as renderFrame does; mid-blend both lines and dots are written, with their weights.
+  const dd = (pts, sx) => { const r = L.dot / 2, R = r.toFixed(2); let s = "";
+    for (let j = 0; j < pts.length - 2; j += 2) s += `M${(pts[j] * sx + r).toFixed(1)} ${pts[j + 1].toFixed(1)}a${R} ${R} 0 1 0 ${(-2 * r).toFixed(2)} 0a${R} ${R} 0 1 0 ${(2 * r).toFixed(2)} 0`;
+    return s; };
   const dsBySx = new Map();
   const dsFor = sx => { if (!dsBySx.has(sx)) dsBySx.set(sx, f.rings.map(r => d(r.pts, sx))); return dsBySx.get(sx); };
+  const ddBySx = new Map();
+  const ddFor = sx => { if (!ddBySx.has(sx)) ddBySx.set(sx, f.rings.map(r => dd(r.pts, sx))); return ddBySx.get(sx); };
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(f.w)}" height="${Math.round(f.h)}" viewBox="0 0 ${f.w.toFixed(1)} ${f.h.toFixed(1)}">`;
   if (L.additive) svg += `<style>path{mix-blend-mode:screen}</style>`;
   svg += `<rect width="100%" height="100%" fill="${rgbToHex(...L.bg)}"/>`;
   svg += `<g transform="translate(${(f.w / 2).toFixed(1)} ${(f.h / 2).toFixed(1)})" fill="none" stroke-width="${L.width.toFixed(2)}" stroke-linejoin="round">`;
   for (const cp of L.copies) {
-    const ds = dsFor(cp.sx ?? 1);
     svg += `<g transform="rotate(${(cp.angle / D2R).toFixed(3)})">`;
-    f.rings.forEach((r, i) => {
-      const op = clamp(L.alpha * r.w * cp.w, 0, 1).toFixed(3);
-      svg += `<path stroke="${f.hex[i]}" stroke-opacity="${op}" d="${ds[i]}"/>`;
-    });
+    if (dots < 1) {
+      const ds = dsFor(cp.sx ?? 1);
+      f.rings.forEach((r, i) => {
+        const op = clamp(L.alpha * r.w * cp.w * (1 - dots), 0, 1).toFixed(3);
+        svg += `<path stroke="${f.hex[i]}" stroke-opacity="${op}" d="${ds[i]}"/>`;
+      });
+    }
+    if (dots > 0) {
+      const ds = ddFor(cp.sx ?? 1);
+      f.rings.forEach((r, i) => {
+        const op = clamp(L.alpha * r.w * cp.w * dots, 0, 1).toFixed(3);
+        svg += `<path fill="${f.hex[i]}" fill-opacity="${op}" stroke="none" d="${ds[i]}"/>`;
+      });
+    }
     svg += `</g>`;
   }
   svg += `</g></svg>`;

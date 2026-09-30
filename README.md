@@ -79,6 +79,11 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
     and unwinds exactly as the look arrives. It is a twist of the whole picture rather than each
     point taking its own arc, because points whose start and end lie opposite each other across
     the centre could pick different ways round and tear a ring apart.
+- **Draw: Lines or Dots.** Dots draws each ring's points with nothing between them, at Dot size;
+  Smoothness is then the dots per ring, so lower it to space them out. Colour, fade, glow, trails,
+  kaleidoscope and light blend apply as for lines. A blend between a lines look and a dots look
+  fades one into the other. SVG export writes the dots; the Houdini node makes points with
+  `pscale` (and no polylines) for a look drawn as dots, switching halfway through such a blend.
 - **Phones and narrow windows** (860px and under): the canvas is pinned to the top of the screen
   (half its height at most) and the controls scroll beneath it, with the sequence and saving last,
   so the picture stays in view while you change things. On a phone held sideways the canvas is

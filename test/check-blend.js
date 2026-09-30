@@ -810,7 +810,7 @@ setTimeout(() => {
   // re-record it then, from that same release, and add the new settings to NEW.
   {
     const NEW = new Set(["sfM", "sfN1", "sfN2", "sfN3", "hopfLat", "hopfSpread", "hopfTurns",
-      "spMode", "spLobes", "spPen", "spPenSpread", "spTwist", "spShrink", "pwPeriod", "pwSwings", "pwSwing", "pwAxis", "pwShrink", "mbSpread", "mbTwist", "mbSize", "msRadius", "msWidth", "msFlat", "msTwists"]);
+      "spMode", "spLobes", "spPen", "spPenSpread", "spTwist", "spShrink", "pwPeriod", "pwSwings", "pwSwing", "pwAxis", "pwShrink", "mbSpread", "mbTwist", "mbSize", "msRadius", "msWidth", "msFlat", "msTwists", "draw", "dotSize"]);
     const ORIGINAL = new Set(["cover", "sphere", "again", "blend", "harmono", "slinky"]);
     let h = 2166136261, n = 0, added = 0, sup = 0;
     for (let k = 1; k <= 300; k++) {

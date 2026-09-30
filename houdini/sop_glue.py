@@ -45,20 +45,34 @@ rings = world_rings(frame)
 if not rings:
     raise hou.NodeError("The look has no rings.")
 
-count = rings[0][0].shape[0]
-pos = np.concatenate([r[0] for r in rings]) * scale
-geo.createPoints(pos.tolist())
-geo.createPolygons([tuple(range(i * count, (i + 1) * count)) for i in range(len(rings))], False)
-
 view = frame["view"]
 # Line width: the page's pixels at its frame size, as world units at render_res.
-width = frame["look"]["width"] / (res * 0.44 * view["zoom"]) * scale
-geo.addAttrib(hou.attribType.Prim, "Cd", (1.0, 1.0, 1.0))
-geo.addAttrib(hou.attribType.Prim, "Alpha", 1.0)
-geo.addAttrib(hou.attribType.Prim, "width", 0.0)
-geo.setPrimFloatAttribValues("Cd", [float(v) for r in rings for v in r[1]])
-geo.setPrimFloatAttribValues("Alpha", [float(r[2]) for r in rings])
-geo.setPrimFloatAttribValues("width", [float(width)] * len(rings))
+px = 1 / (res * 0.44 * view["zoom"]) * scale
+width = frame["look"]["width"] * px
+# Drawn as dots (the page crossfades lines and dots through a blend; here it is one or the other,
+# dots from halfway): points only, no polylines, each ring's last point dropped since it repeats
+# the first, with Cd, Alpha and pscale (the page's dot size in pixels) on the points.
+dots = frame["look"].get("dots", 0.0) >= 0.5
+if dots:
+    count = rings[0][0].shape[0] - 1
+    pos = np.concatenate([r[0][:-1] for r in rings]) * scale
+    geo.createPoints(pos.tolist())
+    for name, default in (("Cd", (1.0, 1.0, 1.0)), ("Alpha", 1.0), ("pscale", 0.0)):
+        geo.addAttrib(hou.attribType.Point, name, default)
+    geo.setPointFloatAttribValues("Cd", [float(v) for r in rings for _ in range(count) for v in r[1]])
+    geo.setPointFloatAttribValues("Alpha", [float(r[2]) for r in rings for _ in range(count)])
+    geo.setPointFloatAttribValues("pscale", [float(frame["look"]["dot"] * px)] * (count * len(rings)))
+else:
+    count = rings[0][0].shape[0]
+    pos = np.concatenate([r[0] for r in rings]) * scale
+    geo.createPoints(pos.tolist())
+    geo.createPolygons([tuple(range(i * count, (i + 1) * count)) for i in range(len(rings))], False)
+    geo.addAttrib(hou.attribType.Prim, "Cd", (1.0, 1.0, 1.0))
+    geo.addAttrib(hou.attribType.Prim, "Alpha", 1.0)
+    geo.addAttrib(hou.attribType.Prim, "width", 0.0)
+    geo.setPrimFloatAttribValues("Cd", [float(v) for r in rings for v in r[1]])
+    geo.setPrimFloatAttribValues("Alpha", [float(r[2]) for r in rings])
+    geo.setPrimFloatAttribValues("width", [float(width)] * len(rings))
 
 # Camera settings for the page's view. Perspective strength k is 1 / the camera's distance: a
 # camera on +Z at distance 1/k sees the rings the way the page projects them, with the focal
@@ -78,6 +92,7 @@ details = {
     "cam_far": max(10000.0, 4 * D * scale),
     "cam_focal": D * aperture * 0.44 * view["zoom"],
     "cam_aperture": aperture,
+    "dots": 1.0 if dots else 0.0,
     "glow": frame["look"]["glow"],
     "trails": frame["look"]["trails"],
     "additive": 1.0 if frame["look"]["additive"] else 0.0,

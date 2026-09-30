@@ -153,7 +153,9 @@ SCHEMA = [
     ("spread", "range", 1, 0, 3),
     ("loopColors", "toggle", False),
     ("cycle", "range", 0, -120, 120),
+    ("draw", "select", "lines", ["lines", "dots"]),
     ("width", "range", 1.1, 0.25, 5),
+    ("dotSize", "range", 3, 0.5, 12),
     ("alphaL", "range", 0.85, 0.05, 1),
     ("fade", "range", 0, 0, 1),
     ("fadeCurve", "range", 1, 0.2, 5),
@@ -650,6 +652,8 @@ def look3d(p, time, M=None):
                      rotate=p["rotate"], spin=p["spin"], time=time, k=persp_k(p["persp"]), zoom=p["zoom"]),
         "copies": kaleido_copies(p),
         "look": {"width": p["width"], "alpha": p["alphaL"], "glow": p["glow"], "trails": p["trails"],
+                 # dots: 1 drawn as dots, 0 as lines, between in a blend (page look3d / blendFrames)
+                 "dots": 1.0 if p["draw"] == "dots" else 0.0, "dot": p["dotSize"],
                  "additive": bool(p["additive"]), "bg": [float(v) for v in hex_to_rgb(p["bg"])]},
     }
 
@@ -799,7 +803,7 @@ def blend3d(A, B, u, turns=0, stagger=0.0, swirl=0.0, ease="linear", tau0=None, 
             # Perspective mixes as strength, not camera distance (page blendFrames).
             "k": lerp(va["k"], vb["k"], t), "zoom": lerp(va["zoom"], vb["zoom"], t)}
     la, lb = A["look"], B["look"]
-    look = {k: lerp(la[k], lb[k], t) for k in ("width", "alpha", "glow", "trails")}
+    look = {k: lerp(la[k], lb[k], t) for k in ("width", "alpha", "glow", "trails", "dots", "dot")}
     look["additive"] = la["additive"] if t < 0.5 else lb["additive"]
     look["bg"] = [float(v) for v in mix_colour(la["bg"], lb["bg"], t)]
     frame = {"pre": pre, "rgb": rgb, "w": w, "view": view, "copies": copies, "look": look}
