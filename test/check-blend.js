@@ -47,13 +47,15 @@ const g = {
 };
 // Sync's server, in memory: the real merge from api/_merge.js behind a fetch stub.
 const { mergeLibraries } = require("../api/_merge.js");
-const fakeServer = { library: { favourites: [], sequences: [] }, calls: 0, fail: false };
+const fakeServer = { library: { favourites: [], sequences: [] }, calls: 0, fail: false, slow: false, release: () => {} };
 g.fetch = async (url, opts) => {
   fakeServer.calls++;
   if (fakeServer.fail) return { ok: false, status: 503, json: async () => ({ error: "server down" }) };
   const body = JSON.parse(opts.body);
   fakeServer.library = mergeLibraries(fakeServer.library, body);
-  return { ok: true, status: 200, json: async () => JSON.parse(JSON.stringify(fakeServer.library)) };
+  const reply = JSON.parse(JSON.stringify(fakeServer.library));
+  if (fakeServer.slow) { fakeServer.slow = false; await new Promise(r => { fakeServer.release = r; }); }
+  return { ok: true, status: 200, json: async () => reply };
 };
 g.crypto = { getRandomValues: a => { for (let i = 0; i < a.length; i++) a[i] = Math.floor(Math.random() * 2 ** 32); return a; } };
 g.window = g;
@@ -1027,6 +1029,19 @@ setTimeout(async () => {
     check("after a sync, the other device's favourite is here, its deletion took effect, mine stayed", msg === "Synced." && names === "Mine,Theirs", `${msg}; favourites: ${names}`);
     check("...and its saved sequence is in this browser's list", (t.readLibrary() || []).some(e => e.name === "Night drive"), "");
     check("...and the server holds this device's items and tombstone", fakeServer.library.favourites.some(f => f.id === mine.uid) && fakeServer.library.favourites.some(f => f.id === gone.uid && f.gone), "");
+    // A favourite removed while a sync is in flight: the reply (made before the removal) must
+    // not bring it back, and the next push must carry the deletion.
+    const late = t.shelfEntry("Late", t.randomize(9));
+    t.favs.push(late); t.writeList(t.FAV_STORE, t.favs);
+    fakeServer.slow = true;  // the next reply waits until we say
+    const inFlight = t.syncNow();
+    await new Promise(r => setTimeout(r, 20));
+    t.favs.splice(t.favs.indexOf(late), 1); t.writeList(t.FAV_STORE, t.favs);
+    fakeServer.release();
+    await inFlight;
+    await new Promise(r => setTimeout(r, 1400));  // the follow-up push scheduled by applyMerged
+    check("a favourite removed during a sync stays removed, here and on the server", !t.favs.some(f => f.name === "Late") && fakeServer.library.favourites.some(f => f.id === late.uid && f.gone),
+      `here: ${t.favs.map(f => f.name).join(",")}; server: ${fakeServer.library.favourites.map(f => f.gone ? f.id + " gone" : f.name).join(",")}`);
     const before = JSON.stringify(t.favs.map(f => f.name));
     fakeServer.fail = true;
     const failMsg = await t.syncNow();

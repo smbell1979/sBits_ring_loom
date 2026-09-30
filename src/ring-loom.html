@@ -3016,10 +3016,7 @@ async function syncNow() {
   if (sync.busy) { scheduleSync(); return null; }
   sync.busy = true; renderSyncRow();
   try {
-    const t = readTombs();
-    const favourites = [...favs.map(e => ({ id: e.uid, u: e.u, name: e.name, params: e.params, at: e.at })), ...Object.entries(t.favourites).map(([id, u]) => ({ id, u, gone: true }))];
-    const lib = readLibrary() || [];
-    const sequences = [...lib.map(e => ({ id: seqId(e), u: e.u, name: e.name, sequence: e.sequence, savedAt: e.savedAt })), ...Object.entries(t.sequences).map(([id, u]) => ({ id, u, gone: true }))];
+    const { favourites, sequences } = localItems();
     const res = await fetch("/api/library", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: sync.code, favourites, sequences }) });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `sync failed (${res.status})`);
@@ -3031,15 +3028,41 @@ async function syncNow() {
     return `Sync failed: ${sync.error}`;
   } finally { sync.busy = false; renderSyncRow(); }
 }
-// The server's merge becomes this device's copy: live items replace the lists (a favourite the
-// other device deleted goes, one it added appears), tombstones are kept only while the server
+// This device's items as the server sees them: live entries and tombstones, with id and u.
+function localItems() {
+  const t = readTombs();
+  return {
+    favourites: [...favs.map(e => ({ id: e.uid, u: e.u, name: e.name, params: e.params, at: e.at })), ...Object.entries(t.favourites).map(([id, u]) => ({ id, u, gone: true }))],
+    sequences: [...(readLibrary() || []).map(e => ({ id: seqId(e), u: e.u, name: e.name, sequence: e.sequence, savedAt: e.savedAt })), ...Object.entries(t.sequences).map(([id, u]) => ({ id, u, gone: true }))],
+  };
+}
+// The same rule as the server's (api/_merge.js): per id the later change wins, a deletion wins a
+// tie, else the lexically smaller item, so both sides agree.
+function mergeItemsLocal(a, b) {
+  const byId = new Map();
+  for (const item of [...a, ...b]) {
+    if (!item || typeof item.id !== "string" || !item.id || !Number.isFinite(item.u)) continue;
+    const have = byId.get(item.id);
+    if (!have || item.u > have.u || (item.u === have.u && (!!item.gone > !!have.gone || (!!item.gone === !!have.gone && JSON.stringify(item) < JSON.stringify(have))))) byId.set(item.id, item);
+  }
+  return [...byId.values()];
+}
+// The server's merge is merged again with what this device has now -- not swapped in -- since a
+// change made while the request was in flight (a favourite removed just after a sync began)
+// is newer than the reply and must not be undone by it; it is pushed on the next sync, asked
+// for here if anything local turned out newer. Live items then replace the lists (a favourite
+// the other device deleted goes, one it added appears); tombstones are kept while either side
 // keeps them. Written with sync.applying so the writes don't stamp or push again.
 function applyMerged(data) {
-  const fav = (data.favourites || []).filter(e => !e.gone && e.params && typeof e.params === "object");
-  const seqs = (data.sequences || []).filter(e => !e.gone && typeof e.name === "string" && Array.isArray(e.sequence));
+  const mine = localItems();
+  const favAll = mergeItemsLocal(mine.favourites, data.favourites || []), seqAll = mergeItemsLocal(mine.sequences, data.sequences || []);
+  const newerHere = [...favAll, ...seqAll].some(e => { const s = [...(data.favourites || []), ...(data.sequences || [])].find(x => x.id === e.id); return !s || e.u > s.u; });
+  const fav = favAll.filter(e => !e.gone && e.params && typeof e.params === "object");
+  const seqs = seqAll.filter(e => !e.gone && typeof e.name === "string" && Array.isArray(e.sequence));
   const t = { favourites: {}, sequences: {} };
-  for (const e of data.favourites || []) if (e.gone) t.favourites[e.id] = e.u;
-  for (const e of data.sequences || []) if (e.gone) t.sequences[e.id] = e.u;
+  for (const e of favAll) if (e.gone) t.favourites[e.id] = e.u;
+  for (const e of seqAll) if (e.gone) t.sequences[e.id] = e.u;
+  if (newerHere) scheduleSync();
   sync.applying = true;
   try {
     const before = JSON.stringify(favs.map(favBody)), beforeLib = JSON.stringify((readLibrary() || []).map(seqBody));
