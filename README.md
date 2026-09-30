@@ -139,8 +139,14 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
   steps are kept exactly, saved and read by Houdini. Out-of-range values are clamped and counts
   (rings, sides, lobes, kaleidoscope, smoothness, harmonograph frequencies) round to whole
   numbers; the field flashes when it used something other than what was typed.
-- **Save** a PNG frame, an SVG of the current lines, or a video clip, including exactly one loop
-  of the sequence.
+- **Save** a PNG frame, an SVG of the current lines, or a clip: 4, 8 or 16 s of the look, one
+  loop of the sequence, or one perfect loop of the look (below). Clips are rendered frame by
+  frame at a constant 60 fps with an exact frame count, as **MP4 (H.264)** in a plain file that
+  Nuke, Resolve, Premiere and phones read, **WebM (VP9)**, or a zip of **PNG frames** (lossless,
+  background painted in) for compositing. Chrome's own recorder, used before, wrote a fragmented
+  MP4 at a variable frame rate that Nuke refuses; it remains only for browsers without WebCodecs.
+  A sequence loop's seam is exact only if the looks' own motions happen to line up over the
+  sequence's length: each look's clock runs on through the whole sequence.
 - **One loop of this look** records a seamless loop of the look being edited. Everything that
   moves has a period (each generator's Drift, Lobe speed, Spin, Cycle, each View motion, the
   pendulum's Period, over Time speed); the loop is the shortest time that is a whole number of
@@ -149,11 +155,11 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
   (kaleidoscope copies straight on, a spirograph's Points-fold symmetry, a harmonograph's phase
   symmetry, a Möbius strip's half turn). The menu shows the length, or that the parts don't line
   up within 10 minutes: **Tune to loop** then nudges them (a few percent) to the nearest values
-  that do. The clip is written frame by frame with WebCodecs into a WebM: N frames at 60 fps,
-  each at its exact time, none repeated or dropped, frame N being frame 0 again; with Trails on
-  a silent loop runs first so the seam carries the same trails. Browsers without WebCodecs
-  record it the ordinary way, which can repeat or skip a frame at the seam (Chrome kept 351,
-  357, 359 or 361 of 360 frames on different runs).
+  that do. The clip is rendered frame by frame with WebCodecs: N frames at 60 fps, each at its
+  exact time, none repeated or dropped, frame N being frame 0 again; with Trails on a silent
+  loop runs first so the seam carries the same trails. Browsers without WebCodecs record it the
+  ordinary way, which can repeat or skip a frame at the seam (Chrome kept 351, 357, 359 or 361
+  of 360 frames on different runs).
 - **Settings code** copies the exact look as JSON so it can be pasted back later.
 - **Trails** keep the lines from frame to frame in their own buffer over black, fading toward
   black by colour with exactly one level taken off each frame, so faded pixels always reach 0

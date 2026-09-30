@@ -415,6 +415,11 @@ textarea {
           <option value="look">One loop of this look</option>
           <option value="seq">One sequence loop</option>
         </select>
+        <select id="recFmt" aria-label="Clip format" title="MP4 (H.264) opens in Nuke, Resolve, Premiere and phones; WebM (VP9) is smaller; PNG frames are lossless (the background painted in), for compositing.">
+          <option value="mp4" selected>MP4 · H.264</option>
+          <option value="webm">WebM · VP9</option>
+          <option value="png">PNG frames · zip</option>
+        </select>
         <button class="btn rec" id="saveVid" type="button" disabled>Record</button>
         <button class="btn" id="tuneLoop" type="button" hidden title="Nudge Drift, Spin, Cycle, Lobe speed or a View motion to the nearest values whose cycles line up, so one loop of this look repeats exactly.">Tune to loop</button>
       </div>
@@ -2968,8 +2973,8 @@ document.getElementById("saveLook").addEventListener("click", () => {
 });
 let recording = false;
 document.getElementById("saveVid").addEventListener("click", () => {
-  if (recording || !REC_MIME) return;
-  const choice = document.getElementById("recLen").value;
+  if (recording) return;
+  const choice = document.getElementById("recLen").value, fmt = document.getElementById("recFmt").value;
   const loop = choice === "seq", lookLoop = choice === "look";
   if (loop && (seq.cards.length < 2 || seqTotal() <= 0)) { statusEl.textContent = "Add at least two looks to record a sequence loop."; return; }
   let L = null;
@@ -2980,7 +2985,45 @@ document.getElementById("saveVid").addEventListener("click", () => {
   }
   const secs = loop ? seqTotal() : lookLoop ? L.secs : parseInt(choice, 10);
   const btn = document.getElementById("saveVid");
-  // One loop of a look is pushed frame by frame (recLoopStep) rather than filmed as it plays.
+  // Every clip is rendered frame by frame (renderClip): a constant 60 fps, an exact frame count,
+  // and a plain MP4 / WebM / PNG sequence that Nuke and the rest read. Only a browser without
+  // WebCodecs films the canvas as it plays (recordLive), which Chrome writes as a fragmented,
+  // variable-rate MP4 that Nuke refuses.
+  if (canExactLoop()) {
+    const fps = LOOP_FPS, N = Math.max(1, Math.round(secs * fps));
+    let spec;
+    if (lookLoop) {
+      const t0 = T, step = L.period / N;
+      spec = { N, preroll: params.trails > 0 ? N : 0, at: i => { T = t0 + i * step; }, done: () => { T = t0 + N * step; }, name: `${stamp()}-loop` };
+    } else if (loop) {
+      // The sequence from its start, its clock stepped as tick steps it (Time speeds mixed
+      // through blends); with Trails, one silent loop first so the seam carries the same trails.
+      const dt = 1 / fps;
+      const advance = () => { const at = seqAt(seq.clock); const sp = !at ? 1 : at.u > 0 ? lerp(seq.cards[at.i].params.speed, seq.cards[at.j].params.speed, at.e) : seq.cards[at.i].params.speed; seq.tau += dt * sp; seq.clock += dt; };
+      const total = seqTotal(), anyTrails = seq.cards.some(c => c.params.trails > 0);
+      spec = { N, preroll: anyTrails ? N : 0, at: i => { if (i === -(anyTrails ? N : 0)) { startSeq(true); seqTickUI(); } else advance(); if (seq.clock >= total) { seq.clock -= total; } }, done: () => { seq.clock = 0; seq.tau = 0; seqTickUI(); }, name: `${stamp()}-sequence-loop` };
+    } else {
+      // A plain clip of the look from where it is now, at its Time speed; trails carry on from
+      // the screen as they would filmed.
+      const t0 = T, step = params.speed / fps;
+      spec = { N, preroll: 0, at: i => { T = t0 + i * step; }, done: () => { T = t0 + N * step; }, name: stamp() };
+    }
+    recording = true;
+    renderClip(spec, fmt, btn).then(out => {
+      recording = false; btn.textContent = "Record clip";
+      if (!out) { statusEl.textContent = "This browser's video encoder can't take a frame this size. Try a smaller window, or PNG frames."; return; }
+      offer(`ring-loom-${spec.name}.${out.ext}`, out.blob);
+    }).catch(err => {
+      recording = false; btn.textContent = "Record clip"; recLoop = null;
+      statusEl.textContent = `Couldn't record: ${err && err.message ? err.message : err}`;
+    });
+    return;
+  }
+  recordLive(secs, loop, lookLoop, L, btn);
+});
+// The old way, for browsers without WebCodecs: MediaRecorder filming the canvas in real time.
+function recordLive(secs, loop, lookLoop, L, btn) {
+  if (!REC_MIME) { statusEl.textContent = "This browser can't record the canvas."; return; }
   const stream = view.captureStream(lookLoop ? 0 : 60);
   const mime = REC_MIME;
   let rec;
@@ -2996,31 +3039,17 @@ document.getElementById("saveVid").addEventListener("click", () => {
     offer(`ring-loom-${stamp()}${lookLoop ? "-loop" : ""}.${ext}`, new Blob(chunks, { type: mime }));
   };
   recording = true;
-  if (lookLoop) {
-    if (canExactLoop()) {
-      stream.getTracks().forEach(t => t.stop());
-      recordLoopExact(L, btn).then(out => {
-        recording = false; btn.textContent = "Record clip";
-        if (!out) { statusEl.textContent = "This browser's video encoder can't take a frame this size. Try a smaller window."; return; }
-        offer(`ring-loom-${stamp()}-loop.webm`, out.blob);
-      }).catch(err => {
-        recording = false; btn.textContent = "Record clip"; recLoop = null;
-        statusEl.textContent = `Couldn't record the loop: ${err && err.message ? err.message : err}`;
-      });
-      return;
-    }
-    startLoopRecording(L, rec, stream, btn); return;
-  }
+  if (lookLoop) { startLoopRecording(L, rec, stream, btn); return; }
   if (loop) startSeq(true);  // start at the first look so the clip is exactly one seamless loop
   else if (!playing) togglePlay();
   rec.start(250);
   const endAt = performance.now() + secs * 1000;
   const label = () => { btn.textContent = `Recording ${Math.max(0, Math.ceil((endAt - performance.now()) / 1000))}s`; };
   label();
-  statusEl.textContent = loop ? "Recording one loop of the sequence…" : "Recording the canvas…";
+  statusEl.textContent = (loop ? "Recording one loop of the sequence" : "Recording the canvas") + " as it plays (this browser has no WebCodecs; the file is what its recorder makes, which some apps refuse).";
   const iv = setInterval(label, 250);
   setTimeout(() => { clearInterval(iv); rec.stop(); }, secs * 1000);
-});
+}
 
 // One perfect loop of the look being edited, frame by frame: the loop (loopOf) is split into N
 // frames at LOOP_FPS, the clock set to each frame's exact time and the frame drawn and handed to
@@ -3049,47 +3078,120 @@ function startLoopRecording(L, rec, stream, btn) {
 // encoder supports it, else VP8. Browsers without WebCodecs fall back to the MediaRecorder loop
 // (startLoopRecording), which says the seam may repeat or skip a frame.
 const canExactLoop = () => typeof VideoEncoder === "function" && typeof VideoFrame === "function";
-async function recordLoopExact(L, btn) {
-  const fps = loopFps(), N = Math.max(1, Math.round(L.secs * fps)), step = L.period / N, preroll = params.trails > 0 ? N : 0;
+// Renders spec.N frames (after spec.preroll silent ones, for trails), spec.at(i) setting the
+// clocks for frame i before it is drawn, into the chosen format: "mp4" (H.264 in a plain MP4,
+// muxMp4), "webm" (VP9, else VP8; muxWebm) or "png" (a zip of PNG frames, zipStore). Video
+// frames are encoded with their exact time, i / fps, and a keyframe every second. Returns
+// { blob, ext }, or null if no encoder takes the frame size.
+async function renderClip(spec, fmt, btn) {
+  const fps = LOOP_FPS, N = spec.N, preroll = spec.preroll || 0;
   // Encoders want even sizes: an odd canvas is cropped by a pixel into a scratch canvas.
-  const W = view.width & ~1, H = view.height & ~1, t0 = T;
+  const W = view.width & ~1, H = view.height & ~1;
   const src = (W === view.width && H === view.height) ? view : Object.assign(document.createElement("canvas"), { width: W, height: H });
   const sctx = src === view ? null : src.getContext("2d");
-  let codec = null, codecId = null;
-  for (const [c, id] of [["vp09.00.10.08", "V_VP9"], ["vp8", "V_VP8"]]) {
-    try { if ((await VideoEncoder.isConfigSupported({ codec: c, width: W, height: H })).supported) { codec = c; codecId = id; break; } } catch {}
-  }
-  if (!codec) return null;
-  const chunks = [];
-  let failed = null;
-  const enc = new VideoEncoder({ output: chunk => chunks.push(chunk), error: e => { failed = e; } });
-  enc.configure({ codec, width: W, height: H, bitrate: 16e6, framerate: fps, latencyMode: "quality" });
   const usec = i => Math.round(i * 1e6 / fps);
+  let enc = null, codecId = null, description = null, failed = null;
+  const chunks = [], pngs = [];
+  if (fmt !== "png") {
+    const tries = fmt === "mp4" ? [["avc1.640033", "avc1"], ["avc1.4D0033", "avc1"], ["avc1.42E033", "avc1"]] : [["vp09.00.10.08", "V_VP9"], ["vp8", "V_VP8"]];
+    for (const [c, id] of tries) {
+      const cfg = { codec: c, width: W, height: H, bitrate: 16e6, framerate: fps, latencyMode: "quality" };
+      if (fmt === "mp4") cfg.avc = { format: "avc" };
+      try { if ((await VideoEncoder.isConfigSupported(cfg)).supported) { codecId = id; enc = new VideoEncoder({ output: (chunk, meta) => { chunks.push(chunk); if (meta && meta.decoderConfig && meta.decoderConfig.description) description = meta.decoderConfig.description; }, error: e => { failed = e; } }); enc.configure(cfg); break; } } catch {}
+    }
+    if (!enc) return null;
+  }
   recLoop = { exact: true };  // tick leaves the drawing to us meanwhile
-  statusEl.textContent = `Recording one loop of this look: ${N} frames at ${fps} fps${preroll ? ", after a silent loop for the trails" : ""}, each frame in its exact place.`;
+  const what = fmt === "png" ? "PNG frames" : fmt === "mp4" ? "MP4 (H.264)" : `WebM (${codecId === "V_VP9" ? "VP9" : "VP8"})`;
+  statusEl.textContent = `Rendering ${N} frames at ${fps} fps to ${what}${preroll ? ", after a silent run for the trails" : ""}…`;
   try {
     for (let i = -preroll; i < N && !failed; i++) {
-      T = t0 + i * step;
+      spec.at(i);
       draw();
       if (i >= 0) {
         if (sctx) sctx.drawImage(view, 0, 0);
-        const frame = new VideoFrame(src, { timestamp: usec(i), duration: usec(i + 1) - usec(i) });
-        enc.encode(frame, { keyFrame: i === 0 });
-        frame.close();
-        while (enc.encodeQueueSize > 8) await new Promise(r => setTimeout(r, 5));  // don't outrun the encoder
+        if (fmt === "png") {
+          const blob = await new Promise(r => src.toBlob(r, "image/png"));
+          pngs.push({ name: `ring-loom-${spec.name}.${String(i + 1).padStart(4, "0")}.png`, data: new Uint8Array(await blob.arrayBuffer()) });
+        } else {
+          const frame = new VideoFrame(src, { timestamp: usec(i), duration: usec(i + 1) - usec(i) });
+          enc.encode(frame, { keyFrame: i % fps === 0 });
+          frame.close();
+          while (enc.encodeQueueSize > 8) await new Promise(r => setTimeout(r, 5));  // don't outrun the encoder
+        }
       }
       btn.textContent = i < 0 ? `Trails ${-i}` : `Frame ${i + 1}/${N}`;
       if (i % 6 === 0) await new Promise(r => setTimeout(r, 0));  // keep the page responsive
     }
-    await enc.flush();
+    if (enc) await enc.flush();
   } finally {
-    try { enc.close(); } catch {}
+    if (enc) { try { enc.close(); } catch {} }
     recLoop = null;
-    T = t0 + N * step;  // one loop on: the picture is where it started
+    spec.done();
+    lastTime = performance.now();
   }
   if (failed) throw failed;
+  if (fmt === "png") return { blob: zipStore(pngs), ext: "zip" };
   if (chunks.length !== N) throw new Error(`the encoder returned ${chunks.length} frames for ${N}`);
-  return { blob: muxWebm(chunks, W, H, fps, codecId), N, fps, codec: codecId };
+  if (fmt === "mp4") { if (!description) throw new Error("the H.264 encoder gave no stream description"); return { blob: muxMp4(chunks, W, H, fps, new Uint8Array(description instanceof ArrayBuffer ? description : description.buffer)), ext: "mp4" }; }
+  return { blob: muxWebm(chunks, W, H, fps, codecId), ext: "webm" };
+}
+// A plain MP4 (ISO base media) for one H.264 track, the kind Nuke, Resolve and Premiere read:
+// ftyp, then moov with the sample tables (one sample per frame, constant duration, keyframes
+// listed), then one mdat holding every frame. Not fragmented: Chrome's MediaRecorder writes
+// moof fragments at a variable frame rate, which those apps refuse.
+function muxMp4(chunks, W, H, fps, avcC) {
+  const cat = arrs => { const n = arrs.reduce((a, b) => a + b.length, 0), out = new Uint8Array(n); let o = 0; for (const a of arrs) { out.set(a, o); o += a.length; } return out; };
+  const u32 = v => Uint8Array.from([(v >>> 24) & 255, (v >>> 16) & 255, (v >>> 8) & 255, v & 255]);
+  const u16 = v => Uint8Array.from([(v >>> 8) & 255, v & 255]);
+  const str = t => new TextEncoder().encode(t);
+  const box = (type, ...parts) => { const body = cat(parts); return cat([u32(8 + body.length), str(type), body]); };
+  const full = (type, version, flags, ...parts) => box(type, Uint8Array.from([version, (flags >>> 16) & 255, (flags >>> 8) & 255, flags & 255]), ...parts);
+  const zeros = n => new Uint8Array(n);
+  const matrix = cat([u32(0x10000), u32(0), u32(0), u32(0), u32(0x10000), u32(0), u32(0), u32(0), u32(0x40000000)]);
+  const N = chunks.length, scale = fps * 1000, durMs = Math.round(N * 1000 / fps);
+  const sizes = chunks.map(c => c.byteLength), keys = chunks.map((c, i) => c.type === "key" ? i + 1 : 0).filter(Boolean);
+  const ftyp = box("ftyp", str("isom"), u32(0x200), str("isom"), str("iso2"), str("avc1"), str("mp41"));
+  const moovAt = offset => box("moov",
+    full("mvhd", 0, 0, u32(0), u32(0), u32(1000), u32(durMs), u32(0x10000), u16(0x100), zeros(10), matrix, zeros(24), u32(2)),
+    box("trak",
+      full("tkhd", 0, 3, u32(0), u32(0), u32(1), u32(0), u32(durMs), zeros(8), u16(0), u16(0), u16(0), u16(0), matrix, u32(W << 16), u32(H << 16)),
+      box("mdia",
+        full("mdhd", 0, 0, u32(0), u32(0), u32(scale), u32(N * 1000), u16(0x55c4), u16(0)),
+        full("hdlr", 0, 0, u32(0), str("vide"), zeros(12), str("VideoHandler"), zeros(1)),
+        box("minf",
+          full("vmhd", 0, 1, zeros(8)),
+          box("dinf", full("dref", 0, 0, u32(1), full("url ", 0, 1))),
+          box("stbl",
+            full("stsd", 0, 0, u32(1), box("avc1", zeros(6), u16(1), u16(0), u16(0), zeros(12), u16(W), u16(H), u32(0x480000), u32(0x480000), u32(0), u16(1), zeros(32), u16(0x18), u16(0xffff), box("avcC", avcC))),
+            full("stts", 0, 0, u32(1), u32(N), u32(1000)),
+            full("stss", 0, 0, u32(keys.length), ...keys.map(u32)),
+            full("stsc", 0, 0, u32(1), u32(1), u32(N), u32(1)),
+            full("stsz", 0, 0, u32(0), u32(N), ...sizes.map(u32)),
+            full("stco", 0, 0, u32(1), u32(offset)))))));
+  const moovLen = moovAt(0).length;  // the same size whatever the offset (fixed-width fields)
+  const moov = moovAt(ftyp.length + moovLen + 8);
+  const datas = chunks.map(c => { const d = new Uint8Array(c.byteLength); c.copyTo(d); return d; });
+  return new Blob([ftyp, moov, box("mdat", ...datas)], { type: "video/mp4" });
+}
+// A zip with the files stored as they are (PNGs are already compressed): local headers, the
+// central directory, the end record. Sizes stay under 4 GB.
+function zipStore(files) {
+  const crcTable = new Int32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; crcTable[n] = c; }
+  const crc32 = d => { let c = -1; for (let i = 0; i < d.length; i++) c = crcTable[(c ^ d[i]) & 255] ^ (c >>> 8); return (c ^ -1) >>> 0; };
+  const le16 = v => Uint8Array.from([v & 255, (v >>> 8) & 255]), le32 = v => Uint8Array.from([v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255]);
+  const parts = [], central = [];
+  let offset = 0;
+  for (const f of files) {
+    const name = new TextEncoder().encode(f.name), crc = crc32(f.data);
+    const local = [le32(0x04034b50), le16(20), le16(0), le16(0), le16(0), le16(0), le32(crc), le32(f.data.length), le32(f.data.length), le16(name.length), le16(0), name];
+    central.push(le32(0x02014b50), le16(20), le16(20), le16(0), le16(0), le16(0), le16(0), le32(crc), le32(f.data.length), le32(f.data.length), le16(name.length), le16(0), le16(0), le16(0), le16(0), le32(0), le32(offset), name);
+    for (const p of local) { parts.push(p); offset += p.length; }
+    parts.push(f.data); offset += f.data.length;
+  }
+  const cdSize = central.reduce((a, b) => a + b.length, 0);
+  return new Blob([...parts, ...central, le32(0x06054b50), le16(0), le16(0), le16(files.length), le16(files.length), le32(cdSize), le32(offset), le16(0)], { type: "application/zip" });
 }
 // A minimal WebM (Matroska) writer for one video track: EBML header, Segment with Info, Tracks
 // and Clusters of SimpleBlocks (one per frame, keyframes flagged), 1 ms timecodes as WebM has.
