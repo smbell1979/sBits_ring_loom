@@ -41,6 +41,11 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
     and unwinds exactly as the look arrives. It is a twist of the whole picture rather than each
     point taking its own arc, because points whose start and end lie opposite each other across
     the centre could pick different ways round and tear a ring apart.
+- **Favourites and History** are tabs beside the Sequence. **★ Add current look** (or **F**) keeps
+  what's on screen; click a favourite's picture to load it, **+ Seq** to add it to the sequence,
+  rename it in place. History keeps the last 30 looks you moved away from (Randomize, Mutate,
+  presets, seeds, loading), newest first, and **★** stars one. Both are kept in this browser;
+  Favourites also **Save to file** and **Open** (a favourites, look or sequence file).
 - **Saved sequences:** name a sequence and Save it to a list in this browser, then Load,
   re-save or delete entries. **Save to file** writes `name.ringloom.json` (every look, hold, blend,
   easing, turns, stagger and swirl) and **Open file** loads one back on any computer; it also accepts a settings code.

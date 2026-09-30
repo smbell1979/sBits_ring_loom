@@ -10,7 +10,8 @@ if (!js.includes(hook)) { console.error("FAIL: draw() hook line not found; updat
 // eagerly would hit the temporal dead zone. By the time the checks run, all exist.
 const exposed = ["computeFrame", "blendFrames", "pairUp", "morphFrame", "rollFrame", "rollBetween", "rotBetween", "blendStartTau", "ringMatches", "look3d", "ringProgress", "cleanCard", "seqAt", "seq", "EASES", "defaults", "PRESETS", "START_PARAMS", "cleanParams",
   "readLibrary", "writeLibrary", "libraryUpsert", "parseSequenceFile", "sequenceFileData", "cardsForSave", "makeCard", "seqDirty", "seqKey",
-  "lookFileData", "readLookFile", "params", "fmt", "readTyped", "BY_ID", "rgbToOklab", "oklabToRgb", "oklabToLinear", "mixColour", "hexToRgb"];
+  "lookFileData", "readLookFile", "params", "fmt", "readTyped", "BY_ID", "rgbToOklab", "oklabToRgb", "oklabToLinear", "mixColour", "hexToRgb",
+  "historyPush", "favouritesAdd", "shelfEntry", "parseFavouritesFile", "applyParams", "hist", "randomize"];
 js = js.replace(hook, hook + "\nglobalThis.__t = {" + exposed.map(n => `get ${n}() { return ${n}; }`).join(", ") + "};");
 
 // In-memory localStorage whose behaviour the library tests can switch: normal, throwing
@@ -421,6 +422,36 @@ setTimeout(() => {
       // runs, the off-mode seam moves through the ping-pong and is sometimes small.)
       rows.every(r => r.on.seam <= r.on.largestInner * 1.001 + 1e-9) && rows.filter(r => !r.name.startsWith("spectrum") && !r.name.includes("Cycle")).every(r => r.off.seam > 3 * r.off.largestInner),
       rows.map(r => `${r.name}: seam ${r.off.seam.toFixed(0)} -> ${r.on.seam.toFixed(1)} (largest neighbour step ${r.on.largestInner.toFixed(1)})`).join("; "));
+  }
+
+  // ---- favourites and history ----
+  {
+    storageMode = "ok";
+    const L = s => t.shelfEntry("L" + s, t.randomize(s));
+    // History: newest first, no repeat of the newest, capped at 30.
+    let h = [];
+    for (let s = 1; s <= 40; s++) h = t.historyPush(h, L(s));
+    const again = t.historyPush(h, t.shelfEntry("same", h[0].params));
+    check("history keeps the newest 30, newest first, without repeating the newest", h.length === 30 && h[0].name === "L40" && h[29].name === "L11" && again === h);
+    // Favourites: no duplicates of the same look.
+    const f1 = t.favouritesAdd([], L(7)), f2 = t.favouritesAdd(f1.list, t.shelfEntry("renamed", L(7).params));
+    check("a look already in favourites isn't added twice", f1.added && !f2.added && f2.list.length === 1 && f2.dup.name === "L7");
+    // Files: favourites round-trip; a look file and a sequence file open as favourites too; entries
+    // without settings are counted, not dropped silently.
+    const fileText = JSON.stringify({ ringLoom: 1, kind: "favourites", favourites: [{ name: "A", params: L(3).params }, { name: "B", params: L(4).params }, { name: "junk" }] });
+    const opened = t.parseFavouritesFile(fileText, "x");
+    check("favourites file opens with every look; unreadable ones counted", opened.entries.length === 2 && opened.skipped === 1 && opened.entries[0].name === "A" &&
+      JSON.stringify(opened.entries[1].params) === JSON.stringify(t.cleanParams(L(4).params)));
+    check("a look file and a sequence file open as favourites", t.parseFavouritesFile(t.lookFileData(), "x").entries.length === 1 && t.parseFavouritesFile(t.sequenceFileData(), "x").entries.length === t.cardsForSave().length);
+    check("a file with no looks is refused with a reason", /no looks/.test((() => { try { t.parseFavouritesFile('{"a":1}', "x"); } catch (e) { return e.message; } })() || ""));
+    // History records the look being replaced, through the page's own applyParams.
+    const before = JSON.stringify(t.cleanParams(t.params));
+    t.applyParams(t.randomize(12345));
+    const newest = t.hist[0];
+    check("replacing the look puts the old one in history", newest && JSON.stringify(newest.params) === before);
+    const len = t.hist.length;
+    t.applyParams(t.cleanParams(t.params));
+    check("re-applying the same look adds nothing", t.hist.length === len);
   }
 
   // ---- typed values beside the sliders ----

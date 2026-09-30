@@ -105,6 +105,29 @@ body { margin: 0; background: var(--ink); color: var(--fg); font-family: var(--u
   margin: 0; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted);
 }
 .dock-title .sub { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--accent); font-size: 12.5px; margin-left: 6px; }
+/* Sequence / Favourites / History tabs, each with its own tools and strip. */
+.tabs { display: flex; gap: 2px; }
+.tab {
+  background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 4px 8px; cursor: pointer;
+  font: 600 11.5px var(--ui); text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted);
+}
+.tab:hover { color: var(--fg); }
+.tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+.tab .count { color: var(--accent); font-weight: 400; letter-spacing: 0; }
+.tab-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; flex: 1 1 auto; min-width: 0; }
+.tab-tools .sub { color: var(--accent); font-size: 12.5px; }
+.minis .mini {
+  flex: 0 0 200px; display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 8px; align-items: center;
+  padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2);
+}
+.mini .mini-body { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.mini .mini-name {
+  min-width: 0; background: transparent; border: 1px solid transparent; border-radius: 3px; color: var(--fg);
+  font: 500 12.5px var(--ui); padding: 2px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mini input.mini-name:hover, .mini input.mini-name:focus { border-color: var(--line); }
+.mini .mini-meta { color: var(--muted); font: 10.5px var(--mono); padding: 0 4px; }
+.mini .mini-btns { display: flex; gap: 4px; }
 .pos { flex: 1 1 200px; min-width: 0; display: flex; align-items: center; gap: 8px; }
 .pos input { flex: 1; min-width: 0; accent-color: var(--accent); margin: 0; }
 .pos output { font: 11.5px var(--mono); font-variant-numeric: tabular-nums; min-width: 48px; text-align: right; }
@@ -185,7 +208,7 @@ summary .sub { text-transform: none; letter-spacing: 0; font-weight: 400; color:
   list-style: none; margin: 0; padding: 0 0 4px; display: flex; gap: 8px;
   overflow-x: auto; overflow-y: hidden; min-height: 82px; flex: 0 0 auto;
 }
-.cards:empty::before { content: "No looks yet. Press Add current look to start a sequence."; color: var(--muted); font-size: 12.5px; align-self: center; }
+.cards:empty::before { content: attr(data-empty); color: var(--muted); font-size: 12.5px; align-self: center; }
 .card {
   flex: 0 0 320px; display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; align-items: center;
   padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2);
@@ -263,24 +286,42 @@ textarea {
     <div class="stamp" aria-hidden="true"><span id="fps"></span><span id="build"></span></div>
     <div class="hud">
       <div><div class="gen" id="hudGen">Two Lanes (measured)</div><div id="hudSeed">seed —</div></div>
-      <div class="hint">drag to orbit · shift-drag to roll · double-click resets view<br>space play · R random · M mutate</div>
+      <div class="hint">drag to orbit · shift-drag to roll · double-click resets view<br>space play · R random · M mutate · F favourite</div>
     </div>
   </main>
 
   <section class="dock" aria-label="Sequence and saving">
     <div class="seq-area">
     <div class="dock-head">
-      <h2 class="dock-title" title="Each look holds, then morphs into the next; the last morphs back into the first. Every ring point travels to its new place while both looks keep moving, so generator, shape and ring-count changes become motion. Click a look's picture to edit it, then Update to store the change.">Sequence<span class="sub" id="seqSub"></span></h2>
-      <button class="btn" id="seqAdd" type="button">Add current look</button>
-      <button class="btn primary" id="seqPlay" type="button">Play sequence</button>
-      <div class="pos">
-        <label for="seqPos" class="dock-title">Position</label>
-        <input type="range" id="seqPos" min="0" max="1" step="0.01" value="0">
-        <output id="seqPosOut" for="seqPos">0.0 s</output>
+      <div class="tabs" role="tablist" aria-label="Sequence, favourites and history">
+        <button class="tab" role="tab" type="button" data-tab="seq" aria-selected="true">Sequence <span class="count" id="seqCount"></span></button>
+        <button class="tab" role="tab" type="button" data-tab="fav" aria-selected="false" title="Looks you've starred, kept in this browser. Click one to load it.">Favourites <span class="count" id="favCount"></span></button>
+        <button class="tab" role="tab" type="button" data-tab="hist" aria-selected="false" title="The looks you moved away from (Randomize, Mutate, presets, loading), newest first, so nothing you passed is lost.">History <span class="count" id="histCount"></span></button>
       </div>
-      <button class="btn" id="seqClear" type="button">Clear all</button>
+      <div class="tab-tools" data-for="seq">
+        <button class="btn" id="seqAdd" type="button">Add current look</button>
+        <button class="btn primary" id="seqPlay" type="button">Play sequence</button>
+        <div class="pos">
+          <label for="seqPos" class="dock-title">Position</label>
+          <input type="range" id="seqPos" min="0" max="1" step="0.01" value="0">
+          <output id="seqPosOut" for="seqPos">0.0 s</output>
+        </div>
+        <button class="btn" id="seqClear" type="button">Clear all</button>
+      </div>
+      <div class="tab-tools" data-for="fav" hidden>
+        <button class="btn primary" id="favAdd" type="button" title="Keep the look on screen (key F)">★ Add current look</button>
+        <button class="btn" id="favSave" type="button" disabled title="All favourites in one file, to back up or move to another computer.">Save to file</button>
+        <button class="btn" id="favOpen" type="button" title="A favourites file, a look file, or a sequence file (each of its looks is added).">Open…</button>
+        <input type="file" id="favIn" accept=".json,application/json" hidden>
+      </div>
+      <div class="tab-tools" data-for="hist" hidden>
+        <span class="sub">Newest first, the last 30 looks you moved away from</span>
+        <button class="btn" id="histClear" type="button">Clear history</button>
+      </div>
     </div>
-    <ol class="cards" id="seqCards" aria-label="Looks in the sequence, in play order"></ol>
+    <ol class="cards" id="seqCards" data-for="seq" aria-label="Looks in the sequence, in play order" data-empty="No looks yet. Press Add current look to start a sequence."></ol>
+    <ol class="cards minis" id="favList" data-for="fav" hidden aria-label="Favourite looks" data-empty="No favourites yet. Press ★ Add current look, or F, to keep what's on screen."></ol>
+    <ol class="cards minis" id="histList" data-for="hist" hidden aria-label="Recent looks, newest first" data-empty="Nothing yet. Looks you move away from with Randomize, Mutate, a preset or loading appear here."></ol>
     <div class="status" id="seqStatus" role="status"></div>
     </div>
 
@@ -1536,6 +1577,7 @@ function setParam(id, v, fromUI) {
   if (seq.playing) stopSeq();  // an edit should show on screen, not hide behind the sequence
   params[id] = v;
   activePreset = null;
+  lookEdited = true;
   dirty = true;
   updateIdle();
   // Menus and toggles decide which rows show (a row's `when`: the generator's settings, Custom's
@@ -1552,8 +1594,10 @@ function setParam(id, v, fromUI) {
 }
 function applyParams(p, presetName) {
   if (seq.playing) stopSeq();
+  rememberLook(Object.assign(defaults(), p));  // the look being replaced goes to History
   params = Object.assign(defaults(), p);
   activePreset = presetName || null;
+  lookEdited = false;
   dirty = true;
   syncUI();
   persist();
@@ -1569,7 +1613,9 @@ function buildPresets() {
   }
 }
 
-function doRandom() { seed = Math.floor(Math.random() * 90000) + 10000; applyParams(randomize(seed)); }
+// Randomize and Apply seed change the seed before applyParams, so the look being left is
+// remembered first, while its name is still the old seed's.
+function doRandom() { rememberLook(null); seed = Math.floor(Math.random() * 90000) + 10000; applyParams(randomize(seed)); }
 function doMutate() { const s = Math.floor(Math.random() * 1e9); applyParams(mutate(params, s)); }
 function togglePlay() { playing = !playing; lastTime = performance.now(); syncUI(); }
 
@@ -1578,16 +1624,18 @@ document.getElementById("mutate").addEventListener("click", doMutate);
 document.getElementById("play").addEventListener("click", togglePlay);
 document.getElementById("seedGo").addEventListener("click", () => {
   const v = parseInt(document.getElementById("seedIn").value, 10);
-  if (Number.isFinite(v)) { seed = Math.abs(v); applyParams(randomize(seed)); }
+  if (Number.isFinite(v)) { rememberLook(null); seed = Math.abs(v); applyParams(randomize(seed)); }
 });
 document.getElementById("seedIn").addEventListener("keydown", e => { if (e.key === "Enter") document.getElementById("seedGo").click(); });
 
 window.addEventListener("keydown", e => {
-  if (e.target.matches("input[type=text], input[type=number], textarea, select")) return;
+  // (Key events can also arrive aimed at the document or window, which have no .matches.)
+  if (e.target instanceof Element && e.target.matches("input[type=text], input[type=number], textarea, select")) return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.code === "Space") { e.preventDefault(); togglePlay(); }
   else if (e.key === "r" || e.key === "R") doRandom();
   else if (e.key === "m" || e.key === "M") doMutate();
+  else if (e.key === "f" || e.key === "F") favAddCurrent();
 });
 
 // Drag to orbit the view.
@@ -1611,7 +1659,7 @@ stage.addEventListener("pointermove", e => {
   for (const id of ["yaw", "pitch", "roll"]) { const it = inputs[id]; it.el.value = params[id]; it.out.value = fmt(it.s, params[id]); }
   updateIdle();
 });
-const endDrag = () => { if (drag) { drag = null; stage.classList.remove("dragging"); persist(); } };
+const endDrag = () => { if (drag) { drag = null; lookEdited = true; stage.classList.remove("dragging"); persist(); } };
 stage.addEventListener("pointerup", endDrag);
 stage.addEventListener("pointercancel", endDrag);
 stage.addEventListener("dblclick", () => { params.yaw = 0; params.pitch = 0; params.roll = 0; params.persp = BY_ID.persp.def; dirty = true; syncUI(); persist(); });
@@ -1797,7 +1845,11 @@ function seqUpdateRange() {
   if (seq.name) bits.push(seq.name);
   if (seq.cards.length) bits.push(`${seq.cards.length} looks · ${total.toFixed(1)} s`);
   if (seqDirty()) bits.push("unsaved");
-  document.getElementById("seqSub").textContent = bits.join(" · ");
+  // On the Sequence tab: the look count, a dot when there are unsaved changes, and the whole
+  // summary on hover. (As a line of its own it pushed the toolbar onto a second row on laptop
+  // screens, costing the canvas 31 px; the name is also in Save, the length in the Record menu.)
+  document.getElementById("seqCount").textContent = (seq.cards.length || "") + (seqDirty() ? " •" : "");
+  document.querySelector('.tab[data-tab="seq"]').title = (bits.length ? bits.join(" · ") + ". " : "") + SEQ_TAB_HELP;
 }
 
 let lastSeqLabel = "";
@@ -2090,6 +2142,188 @@ fileIn.addEventListener("change", async () => {
   }
 });
 
+// ---------- favourites and history (tabs beside the sequence) ----------
+// Favourites: looks you star, newest first. History: the looks you moved away from -- whatever
+// Randomize, Mutate, a preset, a seed or loading replaced -- newest first, the last HIST_MAX.
+// Both live in memory and are written to this browser's storage; a write the browser refuses or
+// drops is reported, never taken as saved (favourites say so and point at Save to file).
+const FAV_STORE = "ring-loom-favourites-v1", HIST_STORE = "ring-loom-history-v1", HIST_MAX = 30;
+const SEQ_TAB_HELP = "Each look holds, then morphs into the next; the last morphs back into the first. Click a look's picture to edit it, then Update to store the change.";
+let favs = [], hist = [], shelfNextId = 1, lookEdited = false;
+function readList(key) {  // null: the browser refused storage
+  try {
+    const v = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(v) ? v.filter(e => e && e.params && typeof e.params === "object") : [];
+  } catch { return null; }
+}
+function writeList(key, list) {
+  try {
+    const s = JSON.stringify(list.map(({ name, params: p, at }) => ({ name, params: p, at })));
+    localStorage.setItem(key, s);
+    return localStorage.getItem(key) === s;  // a write can "succeed" and keep nothing
+  } catch { return false; }
+}
+const sameLook = (a, b) => JSON.stringify(cleanParams(a)) === JSON.stringify(cleanParams(b));
+const shelfEntry = (name, p, at) => ({ id: shelfNextId++, name: (typeof name === "string" && name.trim() ? name.trim() : "Look").slice(0, 40), params: cleanParams(p), at: at || new Date().toISOString() });
+// Newest first; the same look as the newest isn't added twice in a row; the oldest past cap goes.
+function historyPush(list, entry, cap = HIST_MAX) {
+  if (list.length && sameLook(list[0].params, entry.params)) return list;
+  return [entry, ...list].slice(0, cap);
+}
+function favouritesAdd(list, entry) {
+  const dup = list.find(e => sameLook(e.params, entry.params));
+  return dup ? { list, added: false, dup } : { list: [entry, ...list], added: true };
+}
+const currentLookName = () => lookName() + (lookEdited ? " (edited)" : "");
+// Called before the look on screen is replaced by `next` (null: about to be replaced by something
+// not yet known, e.g. Randomize before it picks the new seed, so the name is still the old one's).
+function rememberLook(next) {
+  if (next && sameLook(params, next)) return;
+  const nl = historyPush(hist, shelfEntry(currentLookName(), params));
+  if (nl === hist) return;
+  hist = nl;
+  writeList(HIST_STORE, hist);  // if the browser won't keep it, history still works for this visit
+  renderShelf("hist");
+}
+// Favourites file: { ringLoom, kind: "favourites", favourites: [{ name, params }] }. Open also takes
+// a look file or a sequence file (each of its looks). Entries without settings are counted, not
+// silently dropped.
+const favouritesFileData = () => JSON.stringify({ ringLoom: 1, kind: "favourites", savedAt: new Date().toISOString(),
+  favourites: favs.map(({ name, params: p, at }) => ({ name, params: p, at })) }, null, 1);
+function parseFavouritesFile(text, fallbackName) {
+  let obj;
+  try { obj = JSON.parse(text); } catch { throw new Error("That file isn't a Ring Loom file: it isn't JSON."); }
+  const raw = obj && Array.isArray(obj.favourites) ? obj.favourites
+    : obj && Array.isArray(obj.sequence) ? obj.sequence
+    : obj && obj.params ? [{ name: obj.name, params: obj.params }] : null;
+  if (!raw) throw new Error("That file has no looks in it.");
+  const good = raw.filter(e => e && e.params && typeof e.params === "object");
+  return { entries: good.map(e => shelfEntry(e.name || fallbackName, e.params, typeof e.at === "string" ? e.at : undefined)), skipped: raw.length - good.length };
+}
+
+function addFavourite(entry, how) {
+  const r = favouritesAdd(favs, entry);
+  if (!r.added) { seqStatusEl.textContent = `That look is already in your favourites as "${r.dup.name}".`; return false; }
+  favs = r.list;
+  const kept = writeList(FAV_STORE, favs);
+  renderShelf("fav");
+  seqStatusEl.textContent = kept ? `${how || "Added"} "${entry.name}" to favourites.`
+    : `"${entry.name}" is in favourites for now, but this browser didn't keep it. Use Save to file on the Favourites tab to keep it.`;
+  return true;
+}
+const favAddCurrent = () => addFavourite(shelfEntry(currentLookName(), params));
+
+// Small cards for the two strips: the picture loads the look.
+function miniCard(entry, kind) {
+  const li = document.createElement("li");
+  li.className = "mini";
+  const thumb = document.createElement("button");
+  thumb.type = "button"; thumb.className = "thumb"; thumb.title = "Load this look";
+  thumb.setAttribute("aria-label", `Load ${entry.name}`);
+  const cv = document.createElement("canvas");
+  cv.width = 112; cv.height = 112;
+  thumb.append(cv);
+  thumb.addEventListener("click", () => { applyParams(entry.params); seqStatusEl.textContent = `Loaded "${entry.name}".`; });
+  const body = document.createElement("div");
+  body.className = "mini-body";
+  let name;
+  if (kind === "fav") {
+    name = document.createElement("input");
+    name.type = "text"; name.className = "mini-name"; name.value = entry.name; name.maxLength = 40;
+    name.setAttribute("aria-label", "Favourite name");
+    name.addEventListener("change", () => { entry.name = name.value.trim() || "Look"; name.value = entry.name; writeList(FAV_STORE, favs); });
+  } else {
+    name = document.createElement("div");
+    name.className = "mini-name"; name.textContent = entry.name; name.title = entry.name;
+  }
+  const meta = document.createElement("div");
+  meta.className = "mini-meta";
+  const when = new Date(entry.at);
+  meta.textContent = isNaN(when) ? "" : when.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) + (kind === "fav" ? " · " + when.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
+  const btns = document.createElement("div");
+  btns.className = "mini-btns";
+  const mk = (text, label, fn) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "icon"; b.textContent = text; b.title = label;
+    b.setAttribute("aria-label", `${label}: ${entry.name}`);
+    b.addEventListener("click", fn);
+    btns.append(b);
+    return b;
+  };
+  if (kind === "hist") mk("★", "Add to favourites", () => addFavourite(shelfEntry(entry.name, entry.params), "Starred"));
+  mk("+ Seq", "Add to the sequence", () => {
+    seq.cards.push(makeCard(entry.params, entry.name));
+    renderSeq(); persist();
+    seqStatusEl.textContent = `Added "${entry.name}" to the sequence (${seq.cards.length} looks).`;
+  });
+  if (kind === "fav") {
+    let armed = 0;
+    const del = mk("✕", "Remove from favourites", () => {
+      if (!armed) { del.textContent = "Sure?"; armed = setTimeout(() => { armed = 0; del.textContent = "✕"; }, 3000); return; }
+      clearTimeout(armed);
+      favs = favs.filter(e => e !== entry);
+      const kept = writeList(FAV_STORE, favs);
+      renderShelf("fav");
+      seqStatusEl.textContent = kept ? `Removed "${entry.name}" from favourites.` : `Removed "${entry.name}" here, but this browser didn't store the change.`;
+    });
+  }
+  body.append(name, meta, btns);
+  li.append(thumb, body);
+  drawThumb(entry.params, cv);
+  return li;
+}
+function renderShelf(kind) {
+  const list = kind === "fav" ? favs : hist, el = document.getElementById(kind === "fav" ? "favList" : "histList");
+  el.textContent = "";
+  for (const e of list) el.append(miniCard(e, kind));
+  document.getElementById(kind === "fav" ? "favCount" : "histCount").textContent = list.length ? String(list.length) : "";
+  if (kind === "fav") document.getElementById("favSave").disabled = !downloads || !favs.length;
+}
+function showTab(tab) {
+  for (const b of document.querySelectorAll(".tab")) b.setAttribute("aria-selected", String(b.dataset.tab === tab));
+  for (const el of document.querySelectorAll(".seq-area [data-for]")) el.hidden = el.dataset.for !== tab;
+  try { localStorage.setItem("ring-loom-tab", tab); } catch { /* just not remembered */ }
+}
+for (const b of document.querySelectorAll(".tab")) b.addEventListener("click", () => showTab(b.dataset.tab));
+document.getElementById("favAdd").addEventListener("click", favAddCurrent);
+document.getElementById("histClear").addEventListener("click", e => {
+  const b = e.currentTarget;
+  if (b.dataset.armed !== "1") { b.dataset.armed = "1"; b.textContent = "Press again to clear"; setTimeout(() => { b.dataset.armed = ""; b.textContent = "Clear history"; }, 3000); return; }
+  b.dataset.armed = ""; b.textContent = "Clear history";
+  hist = []; writeList(HIST_STORE, hist); renderShelf("hist");
+  seqStatusEl.textContent = "History cleared.";
+});
+document.getElementById("favSave").addEventListener("click", () => {
+  if (!downloads || !favs.length) return;
+  offer("ring-loom-favourites.json", favouritesFileData()).then(() => { seqStatusEl.textContent = statusEl.textContent; });
+});
+const favIn = document.getElementById("favIn");
+document.getElementById("favOpen").addEventListener("click", () => { favIn.value = ""; favIn.click(); });
+favIn.addEventListener("change", async () => {
+  const file = favIn.files && favIn.files[0];
+  if (!file) return;
+  try {
+    const { entries, skipped } = parseFavouritesFile(await file.text(), file.name.replace(/\.ringloom\.json$|\.json$/i, ""));
+    let added = 0, dups = 0;
+    for (const e of entries.reverse()) { const r = favouritesAdd(favs, e); if (r.added) { favs = r.list; added++; } else dups++; }
+    const kept = writeList(FAV_STORE, favs);
+    renderShelf("fav");
+    seqStatusEl.textContent = `Added ${added} favourite${added === 1 ? "" : "s"} from ${file.name}.` +
+      (dups ? ` ${dups} already there.` : "") + (skipped ? ` ${skipped} couldn't be read and were skipped.` : "") +
+      (kept ? "" : " This browser didn't keep them: use Save to file to keep them.");
+  } catch (err) { seqStatusEl.textContent = err.message; }
+});
+function initShelves() {
+  const f = readList(FAV_STORE), h = readList(HIST_STORE);
+  favs = (f || []).map(e => shelfEntry(e.name, e.params, e.at));
+  hist = (h || []).map(e => shelfEntry(e.name, e.params, e.at));
+  renderShelf("fav"); renderShelf("hist");
+  if (f === null) seqStatusEl.textContent = "This browser isn't letting the page store data, so favourites and history last only for this visit. Favourites can still be saved to a file.";
+  let tab = "seq";
+  try { tab = localStorage.getItem("ring-loom-tab") || "seq"; } catch { /* default */ }
+  showTab(["seq", "fav", "hist"].includes(tab) ? tab : "seq");
+}
+
 // ---------- remembered settings (this browser only) ----------
 const STORE = "ring-loom-v1";
 let persistTimer = 0;
@@ -2234,6 +2468,7 @@ async function initDownloads() {
   saveBtns[1].disabled = false;
   document.getElementById("saveLook").disabled = false;
   document.getElementById("fileSave").disabled = false;
+  document.getElementById("favSave").disabled = !favs.length;
   saveBtns[2].disabled = !REC_MIME;
   const how = downloads === browserDownloads ? "Files go to your downloads folder." : "Each save asks you to confirm.";
   statusEl.textContent = REC_MIME ? how : `${how} This browser can't record clips.`;
@@ -2305,6 +2540,7 @@ function start(data) {
   resize();
   renderSeq();
   renderLibrary();
+  initShelves();
   // `playing` is already false for viewers who ask for reduced motion; don't start it for them.
   if (firstVisit && firstVisit.play && playing) startSeq(true);
   if (defaultNote) seqStatusEl.textContent = defaultNote;
