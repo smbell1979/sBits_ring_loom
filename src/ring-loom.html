@@ -435,9 +435,10 @@ textarea {
           <option value="look">One loop of this look</option>
           <option value="seq">One sequence loop</option>
         </select>
-        <select id="recFmt" aria-label="Clip format" title="MP4 (H.264) opens in Nuke, Resolve, Premiere and phones; WebM (VP9) is smaller; PNG frames are lossless (the background painted in), for compositing.">
+        <select id="recFmt" aria-label="Clip format" title="MP4 (H.264) opens in Nuke, Resolve, Premiere and phones; WebM (VP9) is smaller; MOV · lossless is a QuickTime with PNG-compressed RGB frames (no chroma artefacts) that Nuke, Resolve and ffmpeg read; PNG frames are the same frames as files.">
           <option value="mp4" selected>MP4 · H.264</option>
           <option value="webm">WebM · VP9</option>
+          <option value="mov">MOV · lossless (PNG)</option>
           <option value="png">PNG frames · zip</option>
         </select>
         <button class="btn rec" id="saveVid" type="button" disabled>Record</button>
@@ -487,7 +488,7 @@ textarea {
 
     <h3 id="help-clips">Clips &amp; files</h3>
     <ul>
-      <li><b>Clips</b> are rendered frame by frame at a constant 60 fps with an exact frame count, not filmed, so they needn't play in real time. <b>MP4 · H.264</b> is a plain file that Nuke, Resolve, Premiere and phones read. <b>WebM · VP9</b> is smaller. <b>PNG frames · zip</b> is a numbered, lossless sequence (background painted in) for compositing. A 2-minute MP4 is about 250 MB and is held in memory until saved; PNG frames run to gigabytes, so keep those short.</li>
+      <li><b>Clips</b> are rendered frame by frame at a constant 60 fps with an exact frame count, not filmed, so they needn't play in real time. <b>MP4 · H.264</b> is a plain file that Nuke, Resolve, Premiere and phones read. <b>WebM · VP9</b> is smaller. <b>MOV · lossless</b> is a QuickTime with PNG-compressed RGB frames: no chroma artefacts (H.264 subsamples colour, which frays thin coloured lines), and <code>ffmpeg -i in.mov -c:v prores_ks -profile:v 3 -pix_fmt yuv422p10le out.mov</code> makes ProRes 422 HQ from it with nothing lost. <b>PNG frames · zip</b> is a numbered, lossless sequence (background painted in) for compositing. A 2-minute MP4 is about 250 MB and is held in memory until saved; PNG frames run to gigabytes, so keep those short.</li>
       <li><b>One loop of this look</b> is seamless: frame N is frame 0 again, no frame repeated or dropped; with Trails on, a silent loop runs first so the seam carries the same trails. <b>One sequence loop</b> is exact in length, but its seam only matches if the looks' own motions happen to line up over the sequence: each look's clock runs on through the whole sequence.</li>
       <li><b>Look file</b> saves the look on screen as .ringloom.json; <b>To file</b> the whole sequence. Both open here, or in Houdini through the Ring Loom SOP. <b>Save</b> keeps a sequence in this browser only.</li>
       <li><b>SVG</b> is the current frame as vector paths (or dots), without glow or trails, for Illustrator or After Effects. <b>PNG</b> is the frame as shown.</li>
@@ -3182,7 +3183,8 @@ async function renderClip(spec, fmt, btn) {
   const usec = i => Math.round(i * 1e6 / fps);
   let enc = null, codecId = null, description = null, failed = null;
   const chunks = [], pngs = [];
-  if (fmt !== "png") {
+  const pngFrames = fmt === "png" || fmt === "mov";
+  if (!pngFrames) {
     const tries = fmt === "mp4" ? [["avc1.640033", "avc1"], ["avc1.4D0033", "avc1"], ["avc1.42E033", "avc1"]] : [["vp09.00.10.08", "V_VP9"], ["vp8", "V_VP8"]];
     for (const [c, id] of tries) {
       const cfg = { codec: c, width: W, height: H, bitrate: 16e6, framerate: fps, latencyMode: "quality" };
@@ -3192,7 +3194,7 @@ async function renderClip(spec, fmt, btn) {
     if (!enc) return null;
   }
   recLoop = { exact: true };  // tick leaves the drawing to us meanwhile
-  const what = fmt === "png" ? "PNG frames" : fmt === "mp4" ? "MP4 (H.264)" : `WebM (${codecId === "V_VP9" ? "VP9" : "VP8"})`;
+  const what = fmt === "png" ? "PNG frames" : fmt === "mov" ? "lossless MOV" : fmt === "mp4" ? "MP4 (H.264)" : `WebM (${codecId === "V_VP9" ? "VP9" : "VP8"})`;
   statusEl.textContent = `Rendering ${N} frames at ${fps} fps to ${what}${preroll ? ", after a silent run for the trails" : ""}…`;
   try {
     for (let i = -preroll; i < N && !failed; i++) {
@@ -3200,7 +3202,7 @@ async function renderClip(spec, fmt, btn) {
       draw();
       if (i >= 0) {
         if (sctx) sctx.drawImage(view, 0, 0);
-        if (fmt === "png") {
+        if (pngFrames) {
           const blob = await new Promise(r => src.toBlob(r, "image/png"));
           pngs.push({ name: `ring-loom-${spec.name}.${String(i + 1).padStart(4, "0")}.png`, data: new Uint8Array(await blob.arrayBuffer()) });
         } else {
@@ -3222,6 +3224,7 @@ async function renderClip(spec, fmt, btn) {
   }
   if (failed) throw failed;
   if (fmt === "png") return { blob: zipStore(pngs), ext: "zip" };
+  if (fmt === "mov") return { blob: muxMp4(pngs.map(f => f.data), W, H, fps, null), ext: "mov" };
   if (chunks.length !== N) throw new Error(`the encoder returned ${chunks.length} frames for ${N}`);
   if (fmt === "mp4") { if (!description) throw new Error("the H.264 encoder gave no stream description"); return { blob: muxMp4(chunks, W, H, fps, new Uint8Array(description instanceof ArrayBuffer ? description : description.buffer)), ext: "mp4" }; }
   return { blob: muxWebm(chunks, W, H, fps, codecId), ext: "webm" };
@@ -3230,7 +3233,10 @@ async function renderClip(spec, fmt, btn) {
 // ftyp, then moov with the sample tables (one sample per frame, constant duration, keyframes
 // listed), then one mdat holding every frame. Not fragmented: Chrome's MediaRecorder writes
 // moof fragments at a variable frame rate, which those apps refuse.
+// With avcC null the samples are PNG files (each a keyframe) in a QuickTime "png " track: a
+// lossless RGB movie that Nuke, Resolve and ffmpeg read.
 function muxMp4(chunks, W, H, fps, avcC) {
+  const png = !avcC;
   const cat = arrs => { const n = arrs.reduce((a, b) => a + b.length, 0), out = new Uint8Array(n); let o = 0; for (const a of arrs) { out.set(a, o); o += a.length; } return out; };
   const u32 = v => Uint8Array.from([(v >>> 24) & 255, (v >>> 16) & 255, (v >>> 8) & 255, v & 255]);
   const u16 = v => Uint8Array.from([(v >>> 8) & 255, v & 255]);
@@ -3240,8 +3246,10 @@ function muxMp4(chunks, W, H, fps, avcC) {
   const zeros = n => new Uint8Array(n);
   const matrix = cat([u32(0x10000), u32(0), u32(0), u32(0), u32(0x10000), u32(0), u32(0), u32(0), u32(0x40000000)]);
   const N = chunks.length, scale = fps * 1000, durMs = Math.round(N * 1000 / fps);
-  const sizes = chunks.map(c => c.byteLength), keys = chunks.map((c, i) => c.type === "key" ? i + 1 : 0).filter(Boolean);
-  const ftyp = box("ftyp", str("isom"), u32(0x200), str("isom"), str("iso2"), str("avc1"), str("mp41"));
+  const sizes = chunks.map(c => c.byteLength), keys = chunks.map((c, i) => png || c.type === "key" ? i + 1 : 0).filter(Boolean);
+  const ftyp = png ? box("ftyp", str("qt  "), u32(0x200), str("qt  ")) : box("ftyp", str("isom"), u32(0x200), str("isom"), str("iso2"), str("avc1"), str("mp41"));
+  const entry = png ? box("png ", zeros(6), u16(1), u16(0), u16(0), zeros(12), u16(W), u16(H), u32(0x480000), u32(0x480000), u32(0), u16(1), zeros(32), u16(0x18), u16(0xffff))
+    : box("avc1", zeros(6), u16(1), u16(0), u16(0), zeros(12), u16(W), u16(H), u32(0x480000), u32(0x480000), u32(0), u16(1), zeros(32), u16(0x18), u16(0xffff), box("avcC", avcC));
   const moovAt = offset => box("moov",
     full("mvhd", 0, 0, u32(0), u32(0), u32(1000), u32(durMs), u32(0x10000), u16(0x100), zeros(10), matrix, zeros(24), u32(2)),
     box("trak",
@@ -3253,7 +3261,7 @@ function muxMp4(chunks, W, H, fps, avcC) {
           full("vmhd", 0, 1, zeros(8)),
           box("dinf", full("dref", 0, 0, u32(1), full("url ", 0, 1))),
           box("stbl",
-            full("stsd", 0, 0, u32(1), box("avc1", zeros(6), u16(1), u16(0), u16(0), zeros(12), u16(W), u16(H), u32(0x480000), u32(0x480000), u32(0), u16(1), zeros(32), u16(0x18), u16(0xffff), box("avcC", avcC))),
+            full("stsd", 0, 0, u32(1), entry),
             full("stts", 0, 0, u32(1), u32(N), u32(1000)),
             full("stss", 0, 0, u32(keys.length), ...keys.map(u32)),
             full("stsc", 0, 0, u32(1), u32(1), u32(N), u32(1)),
@@ -3261,8 +3269,8 @@ function muxMp4(chunks, W, H, fps, avcC) {
             full("stco", 0, 0, u32(1), u32(offset)))))));
   const moovLen = moovAt(0).length;  // the same size whatever the offset (fixed-width fields)
   const moov = moovAt(ftyp.length + moovLen + 8);
-  const datas = chunks.map(c => { const d = new Uint8Array(c.byteLength); c.copyTo(d); return d; });
-  return new Blob([ftyp, moov, box("mdat", ...datas)], { type: "video/mp4" });
+  const datas = chunks.map(c => { if (png) return c; const d = new Uint8Array(c.byteLength); c.copyTo(d); return d; });
+  return new Blob([ftyp, moov, box("mdat", ...datas)], { type: png ? "video/quicktime" : "video/mp4" });
 }
 // A zip with the files stored as they are (PNGs are already compressed): local headers, the
 // central directory, the end record. Sizes stay under 4 GB.

@@ -142,8 +142,9 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
 - **Save** a PNG frame, an SVG of the current lines, or a clip: 4, 8 or 16 s of the look, one
   loop of the sequence, or one perfect loop of the look (below). Clips are rendered frame by
   frame at a constant 60 fps with an exact frame count, as **MP4 (H.264)** in a plain file that
-  Nuke, Resolve, Premiere and phones read, **WebM (VP9)**, or a zip of **PNG frames** (lossless,
-  background painted in) for compositing. Chrome's own recorder, used before, wrote a fragmented
+  Nuke, Resolve, Premiere and phones read, **WebM (VP9)**, a **lossless MOV** (a QuickTime with PNG-compressed RGB frames: no chroma
+  artefacts; Nuke, Resolve and ffmpeg read it, and `ffmpeg -c:v prores_ks` turns it into ProRes
+  with no loss on the way), or a zip of **PNG frames** (background painted in) for compositing. Chrome's own recorder, used before, wrote a fragmented
   MP4 at a variable frame rate that Nuke refuses; it remains only for browsers without WebCodecs.
   A sequence loop's seam is exact only if the looks' own motions happen to line up over the
   sequence's length: each look's clock runs on through the whole sequence.
