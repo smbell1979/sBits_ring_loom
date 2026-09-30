@@ -57,6 +57,11 @@ body { margin: 0; background: var(--ink); color: var(--fg); font-family: var(--u
 }
 .stage.dragging { cursor: grabbing; }
 .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+/* Build stamp and frame rate, top right: an overlay, so PNG, SVG and video exports don't include it. */
+.stamp {
+  position: absolute; top: 8px; right: 12px; display: flex; gap: 10px; pointer-events: none;
+  font: 10.5px var(--mono); color: var(--muted); opacity: 0.75; font-variant-numeric: tabular-nums;
+}
 .hud {
   position: absolute; left: 14px; bottom: 12px; right: 14px;
   display: flex; justify-content: space-between; align-items: flex-end; gap: 12px;
@@ -255,6 +260,7 @@ textarea {
 <div class="app">
   <main class="stage" id="stage" aria-label="Ring drawing. Drag to orbit the view.">
     <canvas id="view"></canvas>
+    <div class="stamp" aria-hidden="true"><span id="fps"></span><span id="build"></span></div>
     <div class="hud">
       <div><div class="gen" id="hudGen">Two Lanes (measured)</div><div id="hudSeed">seed —</div></div>
       <div class="hint">drag to orbit · shift-drag to roll · double-click resets view<br>space play · R random · M mutate</div>
@@ -331,6 +337,7 @@ textarea {
 
       <div class="col">
         <details open><summary>Motion &amp; view</summary><div class="rows" id="g-motion"></div></details>
+        <details open><summary>View motion</summary><div class="rows" id="g-viewmotion"></div></details>
         <details open><summary>Look</summary><div class="rows" id="g-look"></div></details>
         <details>
           <summary>Settings code</summary>
@@ -487,6 +494,20 @@ const SCHEMA = [
   { id: "persp", group: "motion", label: "Perspective", type: "range", min: 0, max: 1, step: 0.01, def: 0, r: [0, 0.8], rp: 0.35,
     idle: p => (FLAT_GENS.has(p.gen) && p.yaw === 0 && p.pitch === 0) ? "No effect on a flat generator until the view is tilted with View yaw or View pitch." : null },
   { id: "zoom", group: "motion", label: "Zoom", type: "range", min: 0.3, max: 2.5, step: 0.01, def: 0.95, r: null },
+  // View motion (viewAt): per axis, a sine swing around the slider value or continuous turning,
+  // one cycle per Seconds. Not randomized (r: null), so seeds are unchanged.
+  ...["yaw", "pitch", "roll"].flatMap(a => {
+    const L = a[0].toUpperCase() + a.slice(1);
+    return [
+      { id: a + "Mode", group: "viewmotion", label: `${L} motion`, type: "select", def: "off", r: null,
+        options: { off: "Off", swing: "Swing", turn: "Turn +", turnRev: "Turn −" },
+        tip: `Animate View ${a}: swing back and forth around the slider value, or turn continuously (+ counter-clockwise / − clockwise, as the slider increases / decreases).` },
+      { id: a + "Swing", group: "viewmotion", label: `${L} swing ±°`, type: "range", min: 0, max: 180, step: 0.5, def: 30, r: null,
+        when: p => p[a + "Mode"] === "swing" },
+      { id: a + "Period", group: "viewmotion", label: `${L} seconds`, type: "range", min: 0.5, max: 60, step: 0.1, def: 8, r: null,
+        when: p => p[a + "Mode"] !== "off", tip: "Seconds per full swing, or per full turn." },
+    ];
+  }),
 
   { id: "palette", group: "look", label: "Colour", type: "select", options: paletteLabels, def: "ice" },
   { id: "colorA", group: "look", label: "Colour A", type: "color", def: "#ff2e88", when: p => p.palette === "custom" },
@@ -932,20 +953,33 @@ function fadeWeight(p, k, N) {
   const x = p.fadeFrom === "first" ? 1 - u : p.fadeFrom === "ends" ? Math.abs(2 * u - 1) : p.fadeFrom === "middle" ? 1 - Math.abs(2 * u - 1) : u;
   return 1 - p.fade * Math.pow(x, p.fadeCurve);
 }
+// View motion: the look's yaw, pitch and roll at clock time -- the slider value, plus a sine swing
+// (Swing, amplitude +-swing) or continuous turning (Turn +/-, 360 per cycle), one cycle per
+// Seconds. pitchTurns marks a pitch that can run past +-90, which blends then treat as an angle.
+function viewAt(p, time) {
+  const v = {};
+  for (const a of ["yaw", "pitch", "roll"]) {
+    const mode = p[a + "Mode"], ph = time / p[a + "Period"];
+    v[a] = p[a] + (mode === "swing" ? p[a + "Swing"] * Math.sin(TAU * ph) : mode === "turn" ? 360 * ph : mode === "turnRev" ? -360 * ph : 0);
+  }
+  v.pitchTurns = p.pitchMode === "turn" || p.pitchMode === "turnRev";
+  return v;
+}
 function look3d(p, time, M) {
   const N = Math.round(p.rings);
   M = M || Math.round(p.res);
   const ctx = { p, mats: LINEAR_GENS.has(p.gen) ? linearMats(p, N, time) : null };
   const color = makeColorFn(p, time);
   // One shared object: project() turns every ring the same way without rebuilding the matrix.
-  const ang = { pitch: p.pitch, yaw: p.yaw, roll: p.roll, rot: p.rotate + p.spin * time };
+  const vm = viewAt(p, time);
+  const ang = { pitch: vm.pitch, yaw: vm.yaw, roll: vm.roll, rot: p.rotate + p.spin * time };
   const rings = [];
   for (let k = 0; k < N; k++) {
     rings.push({ pre: ringPre(k, N, M, time, ctx), rgb: color(colourU(p, k, N)), w: fadeWeight(p, k, N), ang });
   }
   return {
     rings, time,
-    view: { pitch: p.pitch, yaw: p.yaw, roll: p.roll, rotate: p.rotate, spin: p.spin },
+    view: { pitch: vm.pitch, yaw: vm.yaw, roll: vm.roll, pitchTurns: vm.pitchTurns, rotate: p.rotate, spin: p.spin },
     cam: { k: perspK(p.persp), zoom: p.zoom },
     look: { width: p.width, alpha: p.alphaL, glow: p.glow, trails: p.trails, additive: p.additive,
             bg: hexToRgb(p.bg), copies: kaleidoCopies(p) },
@@ -1081,20 +1115,32 @@ function rotBetween(va, vb, time, tau0, t) {
   const way = g0 - (((g0 % 360) + 540) % 360 - 180);             // whole turns to skip: short way
   return va.rotate + va.spin * time + t * (vb.rotate - va.rotate + (vb.spin - va.spin) * time - way);
 }
+// An angle t of the way from a to b (degrees), the way round chosen from where the two stood when
+// the blend began (a0, b0) and kept, plus whole extra turns. With View motion the angles keep
+// moving through a blend; taking the short way between the current values would flip direction,
+// and jump, whenever the gap passed 180 (the same trap as spin, rotBetween). For angles that
+// don't move, a0 = a and b0 = b, and this is the plain short way round.
+function angleMix(a, b, a0, b0, t, turns) {
+  const g0 = b0 - a0, way = g0 - ((((g0 % 360) + 540) % 360) - 180);
+  return a + t * (b - a - way + 360 * (turns || 0));
+}
 // Two look3d frames (built at the same moment) mixed t of the way, as a look3d frame. ringT
 // (optional): each output ring's own progress, for staggered blends; turns: extra roll turns;
 // tau0: the clock when the blend began (rotBetween), the frames' own time if not given; matches:
-// each ring pair's point numbering (ringMatches), or null to pair point j with point j.
+// each ring pair's point numbering (ringMatches), or null to pair point j with point j; views0:
+// the two looks' yaw, pitch and roll when the blend began ({ a, b } of viewAt), for angleMix.
 // Each ring's shape mixes in 3D and its view angles as angles, on that ring's own progress, so
 // staggered rings turn into place one by one:
-//   yaw, roll     the short way round (roll plus the card's turns)
+//   yaw, roll     angleMix (roll plus the card's turns)
 //   Rotate, spin  rotBetween
-//   pitch         straight (it only runs -90..90)
+//   pitch         straight while it stays within -90..90 plus a swing; angleMix once either look
+//                 turns it (pitchTurns), since then it runs on past +-90 without end
 // The camera (distance, zoom) and drawing settings follow the overall progress t: in Houdini the
 // camera is one object, and this keeps the two matching exactly.
-function blendFrames(fa, fb, t, ringT, turns, tau0, matches) {
+function blendFrames(fa, fb, t, ringT, turns, tau0, matches, views0) {
   const R = pairUp(fa.rings.length, fb.rings.length);
   const va = fa.view, vb = fb.view, time = fa.time, t0 = tau0 === undefined ? time : tau0;
+  const a0 = views0 ? views0.a : va, b0 = views0 ? views0.b : vb, pitchTurns = va.pitchTurns || vb.pitchTurns;
   const rings = [];
   for (let i = 0; i < R.n; i++) {
     const a = fa.rings[R.ia[i]], b = fb.rings[R.ib[i]], tr = ringT ? ringT[i] : t;
@@ -1102,8 +1148,9 @@ function blendFrames(fa, fb, t, ringT, turns, tau0, matches) {
     // allocating a blended copy of every ring every frame (a quarter of a heavy blend's time).
     const pre = { a: a.pre, b: b.pre, t: tr, match: matches ? matches[i] : null };
     const ang = {
-      pitch: lerp(va.pitch, vb.pitch, tr), yaw: rollBetween(va.yaw, vb.yaw, tr, 0),
-      roll: rollBetween(va.roll, vb.roll, tr, turns),
+      pitch: pitchTurns ? angleMix(va.pitch, vb.pitch, a0.pitch, b0.pitch, tr, 0) : lerp(va.pitch, vb.pitch, tr),
+      yaw: angleMix(va.yaw, vb.yaw, a0.yaw, b0.yaw, tr, 0),
+      roll: angleMix(va.roll, vb.roll, a0.roll, b0.roll, tr, turns),
       rot: rotBetween(va, vb, time, t0, tr),
     };
     rings.push({ pre, rgb: mixColour(a.rgb, b.rgb, tr), w: lerp(a.w * R.wa[i], b.w * R.wb[i], tr), ang });
@@ -1157,12 +1204,10 @@ function twistFrame(f, size, roll, swirl) {
   return f;
 }
 function rollFrame(f, deg) { return deg ? twistFrame(f, 1, () => deg) : f; }
-// The roll part-way through a blend: the short way round, plus the card's extra whole turns
-// (positive: counter-clockwise). Whole turns only, so the blend always ends exactly on B's roll.
-function rollBetween(a, b, e, turns) {
-  const d = ((((b - a) % 360) + 540) % 360) - 180;
-  return a + (d + 360 * (turns || 0)) * e;
-}
+// A still angle part-way through a blend: the short way round, plus the card's extra whole turns
+// (positive: counter-clockwise). Whole turns only, so the blend always ends exactly on B's angle.
+// (angleMix with the angles standing still; the checks use it.)
+const rollBetween = (a, b, e, turns) => angleMix(a, b, a, b, e, turns);
 // Each ring's eased progress through a blend at raw time u. Stagger s delays ring i by
 // s * i / (n - 1) of the blend (the last ring goes first when s is negative); every ring still
 // runs the whole way from 0 to 1, in the remaining 1 - s, so the blend still starts and ends
@@ -1186,7 +1231,8 @@ function morphFrame(pa, pb, time, size, M, u, how = {}, tau0 = time) {
   const fa = look3d(pa, time, M), fb = look3d(pb, time, M);
   const ringE = ringProgress(u, Math.max(fa.rings.length, fb.rings.length), how.stagger, ease);
   const matches = how.match === false ? null : ringMatches(pa, pb, M, tau0);
-  const f = project(blendFrames(fa, fb, e, ringE, how.turns, tau0, matches), size);
+  const views0 = { a: viewAt(pa, tau0), b: viewAt(pb, tau0) };
+  const f = project(blendFrames(fa, fb, e, ringE, how.turns, tau0, matches, views0), size);
   if (!how.swirl) return f;
   // Swirl peaks mid-blend and is gone as each ring arrives.
   return twistFrame(f, size, () => 0, i => how.swirl * Math.sin(Math.PI * (ringE ? ringE[i] : e)));
@@ -1266,10 +1312,27 @@ function blendStartTau(tau, card, speedA, speedB, u) {
 }
 function draw() { renderFrame(currentFrame()); }
 
+// Filled in by build.js (commit time and id); "dev" when the page runs straight from source.
+const BUILD = "dev";
+document.getElementById("build").textContent = BUILD;
+// Frame rate: frames the animation loop actually completed in the last half second. Each frame
+// draws before it finishes, so a slow draw shows up here. Shown as "idle" while nothing redraws.
+const fpsEl = document.getElementById("fps");
+let fpsFrames = 0, fpsDrawn = 0, fpsSince = performance.now();
+function countFrame(now, drew) {
+  fpsFrames++;
+  if (drew) fpsDrawn++;
+  if (now - fpsSince >= 500) {
+    fpsEl.textContent = fpsDrawn ? `${Math.round(fpsFrames * 1000 / (now - fpsSince))} fps` : "idle";
+    fpsFrames = 0; fpsDrawn = 0; fpsSince = now;
+  }
+}
+
 let lastTime = performance.now();
 function tick(now) {
   const dt = Math.min(0.05, (now - lastTime) / 1000);
   lastTime = now;
+  let drew = seq.playing;
   if (seq.playing) {
     if (playing) {
       // Both looks in a blend share one animation clock (tau) whose rate blends between their
@@ -1286,8 +1349,9 @@ function tick(now) {
     const animating = playing && params.speed > 0;
     if (animating) T += dt * params.speed;
     // Trails need continuous frames even when paused, otherwise they freeze half-faded.
-    if (animating || dirty || (params.trails > 0 && playing)) { draw(); dirty = false; }
+    if (animating || dirty || (params.trails > 0 && playing)) { draw(); dirty = false; drew = true; }
   }
+  countFrame(now, drew);
   // The controls show the look being edited, so its ramp runs on that look's own clock.
   drawRamp(T);
   requestAnimationFrame(tick);
@@ -1474,7 +1538,9 @@ function setParam(id, v, fromUI) {
   activePreset = null;
   dirty = true;
   updateIdle();
-  const needsLayout = id === "gen" || id === "palette" || id === "base";
+  // Menus and toggles decide which rows show (a row's `when`: the generator's settings, Custom's
+  // colours, a View motion axis's Swing and Seconds...), so any of them refreshes the whole panel.
+  const needsLayout = BY_ID[id].type === "select" || BY_ID[id].type === "toggle";
   if (!fromUI || needsLayout) syncUI();
   else {
     const it = inputs[id];
@@ -1556,7 +1622,9 @@ const seqPosEl = document.getElementById("seqPos"), seqPosOut = document.getElem
 const seqStatusEl = document.getElementById("seqStatus"), seqPlayBtn = document.getElementById("seqPlay");
 
 function makeCard(p, name) {
-  return { id: seq.nextId++, name, params: cleanParams(p), hold: 3, blend: 3, ease: "smooth", turns: 0, stagger: 0, swirl: 0, match: true };
+  // New looks start with point matching off (Scott's preference: the fold-through look); a card
+  // read from a file takes the file's setting instead (cleanCard).
+  return { id: seq.nextId++, name, params: cleanParams(p), hold: 3, blend: 3, ease: "smooth", turns: 0, stagger: 0, swirl: 0, match: false };
 }
 const MAX_TURNS = 10, MAX_SWIRL = 720;
 // Blend-shaping settings: saved only when set, so sequences saved before they existed keep the

@@ -117,6 +117,11 @@ SCHEMA = [
     ("roll", "range", 0, -180, 180),
     ("persp", "range", 0, 0, 1),
     ("zoom", "range", 0.95, 0.3, 2.5),
+    # View motion (view_at), per axis: mode, swing amplitude, seconds per cycle.
+    *[s for a in ("yaw", "pitch", "roll") for s in (
+        (a + "Mode", "select", "off", ["off", "swing", "turn", "turnRev"]),
+        (a + "Swing", "range", 30, 0, 180),
+        (a + "Period", "range", 8, 0.5, 60))],
     ("palette", "select", "ice", list(PALETTES)),
     ("colorA", "color", "#ff2e88"),
     ("colorB", "color", "#35ffd2"),
@@ -512,9 +517,8 @@ def look3d(p, time, M=None):
     return {
         "pre": pre, "rgb": rgb, "w": fade_weights(p, N),
         # rotate and spin are kept apart (with time) for blends; rot is the angle actually used.
-        "view": {"pitch": p["pitch"], "yaw": p["yaw"], "roll": p["roll"], "rot": p["rotate"] + p["spin"] * time,
-                 "rotate": p["rotate"], "spin": p["spin"], "time": time,
-                 "k": persp_k(p["persp"]), "zoom": p["zoom"]},
+        "view": dict(view_at(p, time), rot=p["rotate"] + p["spin"] * time,
+                     rotate=p["rotate"], spin=p["spin"], time=time, k=persp_k(p["persp"]), zoom=p["zoom"]),
         "copies": kaleido_copies(p),
         "look": {"width": p["width"], "alpha": p["alphaL"], "glow": p["glow"], "trails": p["trails"],
                  "additive": bool(p["additive"]), "bg": [float(v) for v in hex_to_rgb(p["bg"])]},
@@ -604,6 +608,26 @@ def _renumber(pre, match):
     return pre[np.append(idx, idx[0])]
 
 
+def view_at(p, time):
+    """View motion (page viewAt): yaw, pitch and roll at clock time, with pitch_turns marking a pitch
+    that turns on past +-90."""
+    v = {}
+    for a in ("yaw", "pitch", "roll"):
+        mode, ph = p[a + "Mode"], time / p[a + "Period"]
+        off = p[a + "Swing"] * math.sin(TAU * ph) if mode == "swing" else 360 * ph if mode == "turn" else -360 * ph if mode == "turnRev" else 0
+        v[a] = p[a] + off
+    v["pitch_turns"] = p["pitchMode"] in ("turn", "turnRev")
+    return v
+
+
+def angle_mix(a, b, a0, b0, t, turns=0):
+    """Page angleMix: a to b, t of the way (t may be per-ring), the way round chosen from a0, b0
+    (where the angles stood when the blend began) and kept, plus whole extra turns."""
+    g0 = b0 - a0
+    way = g0 - (math.fmod(math.fmod(g0, 360) + 540, 360) - 180)
+    return a + t * (b - a - way + 360 * turns)
+
+
 def rot_between(va, vb, time, tau0, t):
     """The in-plane angle (Rotate + spin x clock) t of the way from look a to b (page rotBetween):
     each look keeps its own spin, and the gap between them closes the short way round, the way
@@ -613,7 +637,7 @@ def rot_between(va, vb, time, tau0, t):
     return va["rotate"] + va["spin"] * time + t * (vb["rotate"] - va["rotate"] + (vb["spin"] - va["spin"]) * time - way)
 
 
-def blend3d(A, B, u, turns=0, stagger=0.0, swirl=0.0, ease="linear", tau0=None, matches=None):
+def blend3d(A, B, u, turns=0, stagger=0.0, swirl=0.0, ease="linear", tau0=None, matches=None, views0=None):
     """A morphing into B at raw blend time u, with the card's ease, extra roll turns, stagger and
     swirl (page morphFrame, blendFrames). Ring shapes, colours and view angles follow each ring's
     own progress; the camera (distance, zoom) and drawing settings follow the overall eased
@@ -634,9 +658,14 @@ def blend3d(A, B, u, turns=0, stagger=0.0, swirl=0.0, ease="linear", tau0=None, 
                lerp(A["copies"][cia[i]][2], B["copies"][cib[i]][2], t)) for i in range(cn)]
     va, vb = A["view"], B["view"]
     # Angles per ring (arrays), so staggered rings turn into place one after another.
-    view = {"pitch": va["pitch"] + (vb["pitch"] - va["pitch"]) * te,
-            "yaw": _shortest(va["yaw"], vb["yaw"], te),
-            "roll": _shortest(va["roll"], vb["roll"], te) + 360 * turns * te,
+    # views0: both looks' view_at when the blend began (their angles keep moving with View motion);
+    # without it, the frames' own angles.
+    a0, b0 = views0 if views0 else (va, vb)
+    pitch_turns = va.get("pitch_turns") or vb.get("pitch_turns")
+    view = {"pitch": angle_mix(va["pitch"], vb["pitch"], a0["pitch"], b0["pitch"], te) if pitch_turns
+                     else va["pitch"] + (vb["pitch"] - va["pitch"]) * te,
+            "yaw": angle_mix(va["yaw"], vb["yaw"], a0["yaw"], b0["yaw"], te),
+            "roll": angle_mix(va["roll"], vb["roll"], a0["roll"], b0["roll"], te, turns),
             "rot": rot_between(va, vb, va["time"], va["time"] if tau0 is None else tau0, te),
             # Perspective mixes as strength, not camera distance (page blendFrames).
             "k": lerp(va["k"], vb["k"], t), "zoom": lerp(va["zoom"], vb["zoom"], t)}
@@ -821,7 +850,8 @@ def evaluate(cards, clock, M=None):
     tau0 = anim_time(cards, clock - at["u"] * a["blend"])
     matches = ring_matches(a["params"], b["params"], tau0, m) if a["match"] else None
     return (blend3d(look3d(a["params"], tau, m), look3d(b["params"], tau, m), at["u"],
-                    a["turns"], a["stagger"], a["swirl"], a["ease"], tau0, matches),
+                    a["turns"], a["stagger"], a["swirl"], a["ease"], tau0, matches,
+                    (view_at(a["params"], tau0), view_at(b["params"], tau0))),
             "%s -> %s" % (a["name"], b["name"]))
 
 

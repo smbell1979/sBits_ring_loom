@@ -356,6 +356,39 @@ setTimeout(() => {
     }
   }
 
+  // ---- view motion ----
+  {
+    const base = Object.assign(t.defaults(), { gen: "sphere", rings: 10, drift: 0, spin: 0, yaw: 20, pitch: 10, roll: -15, persp: 0.4 });
+    const frameDiff = (fa, fb) => { let m = 0; fa.rings.forEach((r, i) => { for (let j = 0; j < r.pts.length; j++) m = Math.max(m, Math.abs(r.pts[j] - fb.rings[i].pts[j])); }); return m; };
+    const at = (extra, time) => t.computeFrame(Object.assign({}, base, extra), time, size, 90);
+    // The same as the plain slider set to the moving angle (the page's own still renderer).
+    const cases = [
+      ["yaw swing +-30 over 4 s, at 1 s (peak)", { yawMode: "swing", yawSwing: 30, yawPeriod: 4 }, 1, { yaw: 50 }],
+      ["pitch turn + over 6 s, at 2 s (+120)", { pitchMode: "turn", pitchPeriod: 6 }, 2, { pitch: 130 }],
+      ["roll turn - over 5 s, at 1.25 s (-90)", { rollMode: "turnRev", rollPeriod: 5 }, 1.25, { roll: -105 }],
+      ["all three at once", { yawMode: "swing", yawSwing: 40, yawPeriod: 8, pitchMode: "turn", pitchPeriod: 12, rollMode: "swing", rollSwing: 20, rollPeriod: 4 }, 2,
+        { yaw: 20 + 40 * Math.sin(Math.PI / 2), pitch: 10 + 60, roll: -15 + 20 * Math.sin(Math.PI) }],
+    ];
+    for (const [name, motion, time, still] of cases) {
+      const d = frameDiff(at(motion, time), at(still, time));
+      check(`view motion: ${name} draws as the slider at that angle`, d < 1e-3, `${d.toExponential(1)} px`);
+    }
+    const loop = frameDiff(at({ yawMode: "turn", yawPeriod: 3, pitchMode: "swing", pitchSwing: 50, pitchPeriod: 1.5 }, 0.4),
+      at({ yawMode: "turn", yawPeriod: 3, pitchMode: "swing", pitchSwing: 50, pitchPeriod: 1.5 }, 3.4));
+    check("view motion repeats exactly after one cycle", loop < 1e-3, `${loop.toExponential(1)} px`);
+    check("view motion off draws exactly as before", frameDiff(at({}, 2), at({ yawMode: "off", yawSwing: 99, yawPeriod: 3 }, 2)) === 0);
+    // Blending out of a turning look, late in playback: smooth (worst step halves when steps
+    // halve) and bounded -- the same path however long the page has played (the spin bug grew).
+    const turning = Object.assign({}, base, { rollMode: "turn", rollPeriod: 2, yawMode: "turn", yawPeriod: 5, pitchMode: "turn", pitchPeriod: 7 });
+    const still = Object.assign({}, base, { gen: "cover", rings: 12, yaw: -40, pitch: 30 });
+    const path = (start, n) => { let w = 0, len = 0, prev = t.morphFrame(turning, still, start, size, 90, 0, {}, start); for (let s = 1; s <= n; s++) { const u = s / n, f = t.morphFrame(turning, still, start + 3 * u, size, 90, u, {}, start); const d = frameDiff(f, prev); w = Math.max(w, d); len += d; prev = f; } return { w, len }; };
+    const runs = [0, 61.7, 600.3].map(start => ({ start, a: path(start, 150), b: path(start, 300) }));
+    const smooth = runs.every(r => r.a.w / r.b.w > 1.6 && r.a.w / r.b.w < 2.4);
+    const lens = runs.map(r => r.b.len), bounded = Math.max(...lens) < 2 * Math.min(...lens);
+    check("blending out of turning views: smooth, and no extra turning late in playback", smooth && bounded,
+      runs.map(r => `from ${r.start} s: step ratio ${(r.a.w / r.b.w).toFixed(2)}, path ${r.b.len.toFixed(0)} px`).join("; "));
+  }
+
   // ---- orthographic at Perspective 0 ----
   {
     // A slinky seen side-on (the screenshot case): every ring the same height at Perspective 0,

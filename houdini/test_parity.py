@@ -81,9 +81,10 @@ def main(path):
         h = b["how"]
         label = f"blend '{b['name']}' at u={b['u']}"
         tau0 = h.get("tau0", b["tau"])
-        matches = None if h.get("match") is False else E.ring_matches(E.clean_params(b["a"]), E.clean_params(b["b"]), tau0, M)
+        pa, pb = E.clean_params(b["a"]), E.clean_params(b["b"])
+        matches = None if h.get("match") is False else E.ring_matches(pa, pb, tau0, M)
         frame = E.blend3d(A, B, b["u"], h.get("turns", 0), h.get("stagger", 0), h.get("swirl", 0), h.get("ease", "linear"),
-                          tau0, matches)
+                          tau0, matches, (E.view_at(pa, tau0), E.view_at(pb, tau0)))
         w = compare(label, frame, b["frame"])
         worst_case = max(worst_case, (w, label))
 

@@ -72,6 +72,11 @@ for (const [pal, cycle] of [["viridis", 0], ["custom", 45], ["spectrum", 0], ["s
 for (const [mirror, copySpan, reflect] of [[2, "half", false], [5, "full", true], [3, "half", true], [1, "full", true]]) {
   looks.push([`kaleidoscope ${mirror} ${copySpan}${reflect ? " mirrored" : ""}`, Object.assign(t.defaults(), { gen: "cover", rings: 12, mirror, copySpan, reflect })]);
 }
+// View motion: each mode on each axis, and all together (checked at the three clock times).
+for (const [name, m] of [["yaw swing", { yawMode: "swing", yawSwing: 45, yawPeriod: 3.3 }], ["pitch turn", { pitchMode: "turn", pitchPeriod: 4.1 }],
+  ["roll turn reverse", { rollMode: "turnRev", rollPeriod: 2.2 }], ["all axes", { yawMode: "turn", yawPeriod: 6, pitchMode: "swing", pitchSwing: 70, pitchPeriod: 2.5, rollMode: "swing", rollSwing: 25, rollPeriod: 1.7 }]]) {
+  looks.push([`view motion ${name}`, Object.assign(t.defaults(), { gen: "slinky", rings: 16, persp: 0.5 }, m)]);
+}
 // Straight down and straight up, the ends of View pitch.
 looks.push(["pitch 90", Object.assign(t.defaults(), { gen: "sphere", rings: 12, pitch: 90, yaw: 25, persp: 0.6 })]);
 looks.push(["pitch -90", Object.assign(t.defaults(), { gen: "slinky", rings: 14, pitch: -90, roll: 30 })]);
@@ -115,6 +120,10 @@ const blendPairs = [
   ["fade blend", flat({ gen: "cover", rings: 19, fade: 0.9, fadeCurve: 2, fadeFrom: "ends" }), flat({ gen: "again", rings: 30 }), { ease: "smooth" }],
   // Mirror turning on during a blend: the twins turn over (sx 1 -> -1).
   ["mirror on", flat({ gen: "cover", rings: 19, mirror: 3 }), flat({ gen: "blend", rings: 25, mirror: 3, reflect: true, copySpan: "half" }), {}],
+  // Out of a look whose view turns and swings, a blend that began earlier (views at tau0 differ
+  // from now): the way round each angle is kept from the start.
+  ["view motion blend", Object.assign(flat({ gen: "cover", rings: 19 }), { yawMode: "turn", yawPeriod: 2, pitchMode: "turn", pitchPeriod: 3, rollMode: "swing", rollSwing: 60, rollPeriod: 1.3 }),
+    flat({ gen: "again", rings: 24, yaw: 40, roll: -30 }), { tau0: 0.9, stagger: 0.3 }],
   ["stagger + views", flat({ gen: "slinky", rings: 20, yaw: 30, pitch: 50, zoom: 1.2, persp: 0.8 }),
     flat({ gen: "harmono", rings: 12, yaw: -120, pitch: -10, zoom: 0.8 }), { stagger: 0.6, ease: "smooth", turns: -1 }],
   ["swirl", flat({ gen: "again", rings: 24, base: "star", sides: 5 }), flat({ gen: "cover", rings: 19 }), { swirl: 270, ease: "smooth" }],

@@ -24,8 +24,9 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
   starts, so point-for-point blending can send them across the ring, folding it through itself.
   Each pair of rings is renumbered (a start offset, either way round) for the least travel,
   chosen when the blend begins. On the presets that removed every hard fold (26 pairs had a
-  ring shrink past half its size mid-blend; none do now). The ⇄ on a card turns it off for that
-  blend, for the twisting fold-through look. When ring or kaleidoscope counts
+  ring shrink past half its size mid-blend; none do now). The ⇄ on a card turns it on or off for
+  that blend; newly added looks start with it off (the twisting fold-through look), while files
+  keep what they saved (older files without the setting load with it on). When ring or kaleidoscope counts
   differ, the extra copies split out of their nearest neighbour instead of fading in; the only
   setting that switches outright is Light blend, at the midpoint. Colours (rings and background)
   mix in OKLCH, the hue taking the short way round, so opposite colours stay vivid and even in
@@ -57,6 +58,13 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
   where full-circle copies land on each other (at 2, and half of them at 4 and 6). **Mirror
   copies** adds a left-right reflected twin to each copy, a true kaleidoscope; in a blend that
   turns it on or off the twins turn over like a card.
+- **View motion:** yaw, pitch and roll can each **Swing** (a sine back and forth around the slider
+  value, ±amount) or **Turn** (continuous, + or −), one cycle per the Seconds set. It runs on the
+  animation clock; dragging the view moves the centre it swings around. In sequence blends each
+  look's moving angle is mixed the way chosen when the blend began, so turning views never flip or
+  whip round mid-blend.
+- The top-right corner of the canvas shows the frame rate and the **build** (commit time in UTC and
+  id, stamped by `build.js`; a `+` marks a local build with uncommitted changes).
 - **Perspective** 0 is orthographic: depth doesn't change size, so near and far rings match. It
   eases into perspective up to 0.3; from there up it is the same as it always was. Blends mix
   perspective strength, so it grows evenly through a blend.
