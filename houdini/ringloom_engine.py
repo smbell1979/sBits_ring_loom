@@ -66,7 +66,8 @@ PALETTES = {
     "sunset": ["#7b2ff7", "#f107a3", "#ff6a00", "#ffd000"],
     "custom": None,
 }
-GENS = ["cover", "sphere", "again", "blend", "harmono", "slinky", "hopf", "spiro", "pendulum", "mobius"]
+GEN_ALIASES = {"mobius": "loxo"}  # "Moebius spiral" became "Loxodromic spiral" (page GEN_ALIASES)
+GENS = ["cover", "sphere", "again", "blend", "harmono", "slinky", "hopf", "spiro", "pendulum", "loxo", "strip"]
 BASES = ["circle", "polygon", "star", "flower", "heart", "infinity", "super"]
 
 # (id, type, default, min, max) for numbers; (id, type, default, options) for menus. Order and
@@ -128,6 +129,10 @@ SCHEMA = [
     ("mbSpread", "range", 7, 3, 12),
     ("mbTwist", "range", 1.2, -3, 3),
     ("mbSize", "range", 0.35, 0.05, 0.6),
+    ("msRadius", "range", 0.62, 0.2, 1),
+    ("msWidth", "range", 0.32, 0.05, 0.7),
+    ("msFlat", "range", 0.3, 0, 1),
+    ("msTwists", "range", 1, 0, 9),
     ("speed", "range", 1, 0, 3),
     ("drift", "range", 0.3, 0, 2),
     ("rotate", "range", 0, -180, 180),
@@ -170,6 +175,8 @@ def clean_params(raw):
     p = dict(DEFAULTS)
     if not isinstance(raw, dict):
         return p
+    if raw.get("gen") in GEN_ALIASES:  # renamed generators (page GEN_ALIASES)
+        raw = dict(raw, gen=GEN_ALIASES[raw["gen"]])
     for s in SCHEMA:
         sid, typ = s[0], s[1]
         if sid not in raw or raw[sid] is None:
@@ -460,7 +467,7 @@ def base_xy(th, c, s, p, e):
 
 
 HOPF_SCALE = 0.45
-MOB_SCALE = 0.7  # Moebius spiral poles at +-MOB_SCALE (page explains)
+LOXO_SCALE = 0.7  # Loxodromic spiral poles at +-LOXO_SCALE (page explains)
 
 
 def ring_world(p, k, N, M, time, mats):
@@ -523,20 +530,31 @@ def ring_world(p, k, N, M, time, mats):
         sc = 1 - p["pwShrink"] * u
         R = [v * sc for v in rot_axis([math.cos(t), 0, math.sin(t)], ang)]
         x, y, z = R[0] * px + R[1] * py, R[3] * px + R[4] * py, R[6] * px + R[7] * py
-    elif g == "mobius":
+    elif g == "strip":
+        # Rings round a loop, each across the band, long axis turning Half twists x angle / 2: half a
+        # turn per trip for the Moebius strip (page ringPre).
+        ph = TAU * k / N + p["drift"] * time * 0.3
+        a = jsround(p["msTwists"]) * ph / 2
+        cr, sr, ca, sa = math.cos(ph), math.sin(ph), math.cos(a), math.sin(a)
+        w, d = p["msWidth"], p["msWidth"] * p["msFlat"]
+        out = w * px * ca - d * py * sa
+        x = p["msRadius"] * cr + out * cr
+        y = p["msRadius"] * sr + out * sr
+        z = w * px * sa + d * py * ca
+    elif g == "loxo":
         # In w the map is multiplication by e^(t + i Twist t); z = (w + 1) / (w - 1) carries its
         # fixed points 0 and infinity to the poles -1 and +1. Rings sit evenly in t across Spread and
         # cycle round it with Drift (page ringPre, which explains the huge arcs near z's pole w = 1).
         L = p["mbSpread"]
-        tt = -L / 2 + mobius_slot(p, k, N, time)
+        tt = -L / 2 + loxo_slot(p, k, N, time)
         gm, ph = math.exp(tt), p["mbTwist"] * tt
         lr, li = gm * math.cos(ph), gm * math.sin(ph)
         ar, ai = p["mbSize"] * px - 1, p["mbSize"] * py
         wr, wi = lr * ar - li * ai, lr * ai + li * ar
         dr = wr - 1
         den = dr * dr + wi * wi
-        x = MOB_SCALE * (wr * wr + wi * wi - 1) / den
-        y = -2 * MOB_SCALE * wi / den
+        x = LOXO_SCALE * (wr * wr + wi * wi - 1) / den
+        y = -2 * LOXO_SCALE * wi / den
         z = np.zeros_like(x)
     else:  # slinky
         # One full turn: spaced 360/N, so the last ring stops a gap short of the first (page ringPre).
@@ -593,20 +611,20 @@ def kaleido_copies(p):
     return out
 
 
-def mobius_slot(p, k, N, time):
-    """Where ring k sits along the Moebius spiral, 0 to Spread (page mobiusSlot)."""
+def loxo_slot(p, k, N, time):
+    """Where ring k sits along the Loxodromic spiral, 0 to Spread (page loxoSlot)."""
     L = p["mbSpread"]
     return math.fmod(math.fmod((k + 0.5) * L / N + p["drift"] * time * 0.25, L) + L, L)
 
 
 def fade_weights(p, N, time):
     """Ring fade (page fadeWeight): each ring's brightness, 1 - fade * x ** curve, x running 0 -> 1
-    toward the faded end. On the Moebius spiral x follows where the ring is along the spiral, and
+    toward the faded end. On the Loxodromic spiral x follows where the ring is along the spiral, and
     the ring wrapping from one pole to the other crossfades (page explains)."""
     u = np.arange(N) / (N - 1) if N > 1 else np.zeros(N)
     edge = np.ones(N)
-    if p["gen"] == "mobius":
-        u = np.array([mobius_slot(p, k, N, time) for k in range(N)]) / p["mbSpread"]
+    if p["gen"] == "loxo":
+        u = np.array([loxo_slot(p, k, N, time) for k in range(N)]) / p["mbSpread"]
         edge = np.clip(u * N, 0, 1) * np.clip((1 - u) * N, 0, 1)
     if not p["fade"]:
         return edge

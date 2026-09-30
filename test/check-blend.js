@@ -654,7 +654,7 @@ setTimeout(() => {
       `after 1: ${gap(f0, frameAt(P)).toExponential(1)}, after 2: ${gap(f0, frameAt(2 * P)).toExponential(1)}, at a third: ${gap(f0, frameAt(P / 3)).toFixed(2)}`);
   }
 
-  // Moebius spiral, checked with plain complex arithmetic on the drawn points. The Moebius map
+  // Loxodromic spiral, checked with plain complex arithmetic on the drawn points. The Moebius map
   // taking three points of one ring to the same three points of the next is fitted from those
   // points alone; it must then carry every other point of that ring onto the next ring, be the
   // same map for every consecutive pair, and fix the two poles (+-0.7). Circle rings must come
@@ -667,7 +667,7 @@ setTimeout(() => {
     // Cross-ratio map sending z1, z2, z3 to 0, 1, infinity, and its inverse.
     const toStd = (z1, z2, z3) => z => cd(cm(cs(z, z1), cs(z2, z3)), cm(cs(z, z3), cs(z2, z1)));
     const fromStd = (w1, w2, w3) => s => { const q = cm(s, cd(cs(w2, w1), cs(w2, w3))); return cd(cs(w1, cm(q, w3)), cs([1, 0], q)); };
-    const mobRings = (o, time = 0) => { const p = Object.assign(t.defaults(), { gen: "mobius", rings: 16, wobble: 0, drift: 0 }, o), N = p.rings;
+    const mobRings = (o, time = 0) => { const p = Object.assign(t.defaults(), { gen: "loxo", rings: 16, wobble: 0, drift: 0 }, o), N = p.rings;
       return [...Array(N).keys()].map(k => { const f = t.ringPre(k, N, 240, time, { p }); return [...Array(240).keys()].map(j => [f[3 * j], f[3 * j + 1]]); }); };
     const fit = (a, b) => { const A = toStd(a[0], a[80], a[160]), B = fromStd(b[0], b[80], b[160]); return z => B(A(z)); };
     let worstMap = 0, worstSame = 0, worstPole = 0;
@@ -682,28 +682,28 @@ setTimeout(() => {
       }
       for (const pole of [[0.7, 0], [-0.7, 0]]) { const f = T(pole); worstPole = Math.max(worstPole, Math.hypot(f[0] - pole[0], f[1] - pole[1])); }
     }
-    check("Möbius rings are one fixed Möbius map apart, and it fixes the two poles", worstMap < 1e-8 && worstSame < 1e-8 && worstPole < 1e-8,
+    check("Loxodromic rings are one fixed Möbius map apart, and it fixes the two poles", worstMap < 1e-8 && worstSame < 1e-8 && worstPole < 1e-8,
       `pair fit off ${worstMap.toExponential(1)}, one map for all off ${worstSame.toExponential(1)}, poles moved ${worstPole.toExponential(1)}`);
     let worstCirc = 0;
     for (const r of mobRings({ mbTwist: 1.7, mbSize: 0.45 })) {
       const c = circleOf(r.map(q => [q[0], q[1], 0]));
       for (const q of r) worstCirc = Math.max(worstCirc, Math.abs(Math.hypot(q[0] - c.cen[0], q[1] - c.cen[1]) - c.r) / c.r);
     }
-    check("Möbius spiral keeps circle rings exact circles", worstCirc < 1e-9, `worst ${worstCirc.toExponential(1)}`);
+    check("Loxodromic spiral keeps circle rings exact circles", worstCirc < 1e-9, `worst ${worstCirc.toExponential(1)}`);
     const L = 7, d = 0.5, loop = L / (0.25 * d), gap = (a, b) => Math.max(...a.map((r, k) => Math.max(...r.map((q, j) => Math.hypot(q[0] - b[k][j][0], q[1] - b[k][j][1])))));
     const at = time => mobRings({ base: "star", mbSpread: L, drift: d }, time), m0 = at(0);
-    check("Möbius rings stream along the spiral and are back in place after one cycle",
+    check("Loxodromic rings stream along the spiral and are back in place after one cycle",
       gap(m0, at(loop)) < 1e-9 && gap(m0, at(loop / 3)) > 0.01, `after a cycle ${gap(m0, at(loop)).toExponential(1)}, a third of the way ${gap(m0, at(loop / 3)).toFixed(3)}`);
   }
 
-  // Moebius fade and wrap, from look3d's drawn rings and weights. (1) Streaming, a ring leaving at
+  // Loxodromic spiral fade and wrap, from look3d's drawn rings and weights. (1) Streaming, a ring leaving at
   // one pole reappears at the other: every such jump (seen as the ring's points moving far in one
   // small time step) must happen while the ring is invisible -- the pop Scott saw -- and jumps must
   // actually occur, or the check proves nothing. (2) The fade is where a ring is, not which ring:
   // one ring slot later, the picture, weights included, is the same set of rings as before (with
   // the fade by ring number it moved one ring along each slot).
   {
-    const base = { gen: "mobius", rings: 12, mbSpread: 4, drift: 0.8, mbSize: 0.45 };
+    const base = { gen: "loxo", rings: 12, mbSpread: 4, drift: 0.8, mbSize: 0.45 };
     let jumps = 0, worstVisible = 0;
     for (const extra of [{ fade: 0 }, { fade: 0.9, fadeFrom: "ends", fadeCurve: 1.5 }, { fade: 0.7, fadeFrom: "first" }]) {
       const p = Object.assign(t.defaults(), base, extra);
@@ -719,7 +719,7 @@ setTimeout(() => {
         prev = cur;
       }
     }
-    check("Möbius rings wrap from pole to pole only while invisible (no pop)", jumps > 0 && worstVisible < 0.05,
+    check("Loxodromic rings wrap from pole to pole only while invisible (no pop)", jumps > 0 && worstVisible < 0.05,
       `${jumps} wraps seen, brightest at the moment of wrapping ${worstVisible.toFixed(3)}`);
     const p = Object.assign(t.defaults(), base, { fade: 0.85, fadeFrom: "ends", fadeCurve: 1.3 });
     const slot = p.mbSpread / p.rings / (0.25 * p.drift);
@@ -730,6 +730,48 @@ setTimeout(() => {
       A.forEach((r, i) => { worst = Math.max(worst, Math.abs(r.w - B[i].w), Math.abs(r.x - B[i].x), Math.abs(r.y - B[i].y)); });
     }
     check("Möbius ring fade follows the place along the spiral, not the ring", worst < 1e-9, `one slot later, rings and weights off by ${worst.toExponential(1)}`);
+  }
+
+  // Moebius strip, measured on the drawn rings. Each ring's long axis is found from its points (the
+  // two farthest apart), and its angle measured in the ring's own plane against the outward
+  // direction (from the ring's centre); unwrapped round the loop and closed back onto the first
+  // ring, the axis must turn exactly Half twists x 180 degrees -- for 1, it comes back reversed:
+  // one side. Every ring must lie square across the loop (no point off the plane through its
+  // centre and the loop's axis). And with Drift, one ring slot later the rings are the same set.
+  {
+    const stripRings = (o, time = 0) => { const p = Object.assign(t.defaults(), { gen: "strip", rings: 36, drift: 0, wobble: 0 }, o), N = p.rings;
+      return [...Array(N).keys()].map(k => { const f = t.ringPre(k, N, 120, time, { p }); return [...Array(120).keys()].map(j => [f[3 * j], f[3 * j + 1], f[3 * j + 2]]); }); };
+    const measure = R => {
+      let total = 0, prev = null, off = 0;
+      const angles = R.map(pts => {
+        const c = [0, 1, 2].map(i => pts.reduce((a, q) => a + q[i], 0) / pts.length), r = Math.hypot(c[0], c[1]);
+        const out = [c[0] / r, c[1] / r], tan = [-out[1], out[0]];
+        let best = 0, A = pts[0], B = pts[0];
+        for (const a of pts) for (const b of pts) { const d = (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2; if (d > best) { best = d; A = a; B = b; } }
+        for (const q of pts) off = Math.max(off, Math.abs((q[0] - c[0]) * tan[0] + (q[1] - c[1]) * tan[1]));
+        const v = [B[0] - A[0], B[1] - A[1], B[2] - A[2]];
+        return Math.atan2(v[2], v[0] * out[0] + v[1] * out[1]);
+      });
+      for (const a of [...angles, angles[0]]) {  // an axis has no direction: steps are mod 180
+        if (prev !== null) { let d = a - prev; d -= Math.PI * Math.round(d / Math.PI); total += d; }
+        prev = a;
+      }
+      return { turn: total / Math.PI, off };
+    };
+    const bad = [];
+    for (const [tw, flat] of [[1, 0.3], [1, 0], [2, 0.3], [3, 0.2], [5, 0.4], [0, 0.3]]) {
+      const m = measure(stripRings({ msTwists: tw, msFlat: flat }));
+      if (Math.abs(Math.abs(m.turn) - tw) > 1e-6 || m.off > 1e-12) bad.push(`${tw} half twists: axis turned ${m.turn.toFixed(4)} x 180, off plane ${m.off.toExponential(1)}`);
+    }
+    check("Möbius strip: rings lie across the loop and their long axes turn Half twists x 180 round it", bad.length === 0, bad.join("; ") || "0/1/2/3/5 half twists, flat and thick");
+    const gap3 = (a, b) => { let w = 0; for (const q of a) { let m = Infinity; for (const r of b) m = Math.min(m, Math.hypot(q[0] - r[0], q[1] - r[1], q[2] - r[2])); w = Math.max(w, m); } return w; };
+    const o = { msTwists: 1, drift: 0.7, rings: 12 }, slot = (2 * Math.PI / 12) / (0.3 * 0.7);
+    const A = stripRings(o, 0.9), B = stripRings(o, 0.9 + slot);
+    let worst = 0;
+    A.forEach(r => { worst = Math.max(worst, Math.min(...B.map(s => Math.max(gap3(r, s), gap3(s, r))))); });
+    check("Möbius strip: the rings flow round and one slot later are the same set", worst < 1e-9, `off by ${worst.toExponential(1)}`);
+    const old = t.cleanParams({ gen: "mobius", mbTwist: 2.25, mbSize: 0.41 });
+    check("a look saved as the old Möbius spiral opens as the Loxodromic spiral, settings kept", old.gen === "loxo" && old.mbTwist === 2.25 && old.mbSize === 0.41, `gen ${old.gen}`);
   }
 
   // Pendulum Period's log slider track: ends at 4 and 720 s, 30 s round-trips exactly and sits well
@@ -753,7 +795,7 @@ setTimeout(() => {
   // re-record it then, from that same release, and add the new settings to NEW.
   {
     const NEW = new Set(["sfM", "sfN1", "sfN2", "sfN3", "hopfLat", "hopfSpread", "hopfTurns",
-      "spMode", "spLobes", "spPen", "spPenSpread", "spTwist", "spShrink", "pwPeriod", "pwSwings", "pwSwing", "pwAxis", "pwShrink", "mbSpread", "mbTwist", "mbSize"]);
+      "spMode", "spLobes", "spPen", "spPenSpread", "spTwist", "spShrink", "pwPeriod", "pwSwings", "pwSwing", "pwAxis", "pwShrink", "mbSpread", "mbTwist", "mbSize", "msRadius", "msWidth", "msFlat", "msTwists"]);
     const ORIGINAL = new Set(["cover", "sphere", "again", "blend", "harmono", "slinky"]);
     let h = 2166136261, n = 0, added = 0, sup = 0;
     for (let k = 1; k <= 300; k++) {
@@ -764,7 +806,7 @@ setTimeout(() => {
       const s = JSON.stringify(Object.keys(x).filter(q => !NEW.has(q)).map(q => [q, x[q]]));
       for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0;
     }
-    check("seeds on an original generator and base come out as before", h === 949772110 && n === 161, `${n} seeds, digest ${h}; ${added} now on a new generator, ${sup} now Superformula`);
+    check("seeds on an original generator and base come out as before", h === 141746709 && n === 151, `${n} seeds, digest ${h}; ${added} now on a new generator, ${sup} now Superformula`);
   }
 
   t.seq.savedKey = t.seqKey();

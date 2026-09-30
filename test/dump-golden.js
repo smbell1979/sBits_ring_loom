@@ -100,14 +100,18 @@ for (const [spMode, spLobes, spPen, spPenSpread, spTwist, spShrink] of [["hypo",
 looks.push(["pendulum star", Object.assign(t.defaults(), { gen: "pendulum", base: "star", sides: 5, rings: 15, pwSwing: 70, pitch: 25, persp: 0.5 })]);
 looks.push(["pendulum axis 90 superformula", Object.assign(t.defaults(), { gen: "pendulum", base: "super", sfM: 4, rings: 12, pwAxis: 90, pwSwings: 3, pwShrink: 0.2 })]);
 looks.push(["pendulum short period", Object.assign(t.defaults(), { gen: "pendulum", rings: 20, pwPeriod: 5, pwSwings: 11, pwSwing: 140, pwAxis: 35, yaw: 30 })]);
-// Moebius spiral: circles, a star with twist the other way, a heart with wobble streaming, and a
+// Loxodromic spiral: circles, a star with twist the other way, a heart with wobble streaming, and a
 // tight twist with big rings (the huge arcs near the map's pole), compared like any other look.
-looks.push(["mobius circles", Object.assign(t.defaults(), { gen: "mobius", rings: 18 })]);
-looks.push(["mobius star", Object.assign(t.defaults(), { gen: "mobius", base: "star", sides: 5, rings: 22, mbTwist: -2.1, mbSpread: 9.5, drift: 0.9 })]);
-looks.push(["mobius heart wobble", Object.assign(t.defaults(), { gen: "mobius", base: "heart", rings: 15, mbSize: 0.5, wobble: 0.2, drift: 1.7, mbSpread: 4 })]);
-// Ring fade on the Moebius spiral runs on the place along the spiral, with the wrap crossfade.
-looks.push(["mobius fade ends", Object.assign(t.defaults(), { gen: "mobius", rings: 14, mbSpread: 4.5, drift: 1.1, fade: 0.8, fadeFrom: "ends", fadeCurve: 1.6 })]);
-looks.push(["mobius big arcs", Object.assign(t.defaults(), { gen: "mobius", rings: 30, mbTwist: 2.9, mbSize: 0.6, zoom: 0.4 })]);
+looks.push(["loxo circles", Object.assign(t.defaults(), { gen: "loxo", rings: 18 })]);
+looks.push(["loxo star", Object.assign(t.defaults(), { gen: "loxo", base: "star", sides: 5, rings: 22, mbTwist: -2.1, mbSpread: 9.5, drift: 0.9 })]);
+looks.push(["loxo heart wobble", Object.assign(t.defaults(), { gen: "loxo", base: "heart", rings: 15, mbSize: 0.5, wobble: 0.2, drift: 1.7, mbSpread: 4 })]);
+// Ring fade on the Loxodromic spiral runs on the place along the spiral, with the wrap crossfade.
+looks.push(["loxo fade ends", Object.assign(t.defaults(), { gen: "loxo", rings: 14, mbSpread: 4.5, drift: 1.1, fade: 0.8, fadeFrom: "ends", fadeCurve: 1.6 })]);
+looks.push(["loxo big arcs", Object.assign(t.defaults(), { gen: "loxo", rings: 30, mbTwist: 2.9, mbSize: 0.6, zoom: 0.4 })]);
+// Moebius strip: classic, flat (the strip itself), more half twists on a star with wobble, streaming.
+looks.push(["strip classic", Object.assign(t.defaults(), { gen: "strip", rings: 24, pitch: 50, persp: 0.4 })]);
+looks.push(["strip flat", Object.assign(t.defaults(), { gen: "strip", rings: 30, msFlat: 0, msWidth: 0.4, yaw: -35, pitch: 40 })]);
+looks.push(["strip 3 twists star", Object.assign(t.defaults(), { gen: "strip", base: "star", sides: 5, rings: 20, msTwists: 3, msFlat: 0.5, wobble: 0.15, drift: 0.9, pitch: 65 })]);
 looks.push(["roll+mirror", Object.assign(t.defaults(), { gen: "slinky", roll: 75, pitch: 30, mirror: 5, rings: 20 })]);
 
 const cases = [];
@@ -156,7 +160,8 @@ const blendPairs = [
   ["swirl zoomed", flat({ gen: "blend", rings: 25, zoom: 1.6 }), flat({ gen: "blend", rings: 25, zoom: 1.6, phase: -90 }), { swirl: -405 }],
   ["hopf -> superformula", flat({ gen: "hopf", rings: 16, pitch: 30, persp: 0.4 }), flat({ gen: "again", rings: 24, base: "super", sfM: 7, sfN1: 1.2, sfN2: 4, sfN3: 11 }), { stagger: 0.3, ease: "smooth" }],
   ["spirograph -> pendulum", flat({ gen: "spiro", rings: 20, spMode: "epi", spLobes: 6 }), flat({ gen: "pendulum", rings: 14, base: "polygon", sides: 4, pitch: 30 }), { stagger: -0.3, swirl: 90 }],
-  ["mobius -> pendulum", flat({ gen: "mobius", rings: 20, base: "star", drift: 0.6 }), flat({ gen: "pendulum", rings: 12, pitch: 40 }), { stagger: 0.4, ease: "smooth" }],
+  ["strip -> loxo", flat({ gen: "strip", rings: 30, pitch: 45 }), flat({ gen: "loxo", rings: 20 }), { swirl: 120, ease: "smooth" }],
+  ["loxo -> pendulum", flat({ gen: "loxo", rings: 20, base: "star", drift: 0.6 }), flat({ gen: "pendulum", rings: 12, pitch: 40 }), { stagger: 0.4, ease: "smooth" }],
   ["all together", flat({ gen: "harmono", rings: 12, roll: 20, mirror: 4 }), flat({ gen: "cover", rings: 19, roll: -100 }), { turns: 1, stagger: -0.55, swirl: 180, ease: "out" }],
 ];
 const blends = [];

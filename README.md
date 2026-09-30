@@ -26,7 +26,10 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
     slider is logarithmic so the short periods aren't squeezed into its first pixels; the field
     shows seconds. Axis tilt 0 tips them over like gimbals, 90 turns them in the picture. Drift is
     ignored.
-  - *Möbius spiral* - the base shape carried along the orbit of one loxodromic Möbius map: rings
+  - *Loxodromic spiral* (was "Möbius spiral") - the base shape carried along the orbit of one
+    loxodromic Möbius transformation (a map of the plane that keeps circles circles; nothing to do
+    with the strip): a spiral of scaled, turned copies, bent so its centre and infinity become two
+    poles on screen. Rings
     stream out of one pole and spiral into the other. Circles stay exact circles; other shapes
     bend conformally. Spread (how far into the poles), Twist, Ring size; Drift streams the rings
     along the spiral, a seamless loop (pair it with Loop colours). A tight Twist with big rings
@@ -34,6 +37,12 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
     Ring fade here runs on each ring's place along the spiral (0 at one pole, 1 at the other)
     rather than its number, so it stays put while the rings stream through it; and the ring
     wrapping from one pole to the other crossfades with its neighbour, so nothing pops on.
+    Looks saved under the old name open as this generator (`GEN_ALIASES`, page and Houdini).
+  - *Möbius strip* - rings spaced round a loop, each drawn across the band, their long axes
+    turning half a turn per trip: a ring arrives back at its start upside down, and the band has
+    one side. Loop size, Band width, Thickness (0 flattens each ring to a line across the band,
+    drawing the strip itself; 1 is round, where the twist can't show on circles) and Half twists
+    (odd: one-sided). Drift carries the rings round the strip; a loop has no ends, so nothing pops.
   - *Two-ellipse blend* - interpolates a start ellipse into an end ellipse.
   - *Two Lanes (measured)* - 31 ellipses measured from the Two Lanes "Searching" cover. The two
     outermost are near-circles whose measured angles were noise, so they follow the fitted trend
@@ -267,12 +276,12 @@ reordering randomized parameters changes what every seed produces. Randomize pic
 palette, so adding a palette changes the colour a seed number gives (only its colour: the palette
 is one random draw). Saved looks, sequences and the default store the palette by name, so they
 never change.
-Hopf fibration, Superformula, Spirograph, Pendulum wave and Möbius spiral were added without
-disturbing old seeds: the original draw still picks among the original generators and base shapes,
-and a second random stream gives the new ones their fair share (1 in 10 each for generators, 1 in
-7 for the base shape) and draws the superformula settings. Measured on 20,000 seeds against the
-release before any were added: 56% come out exactly as before; the rest became looks on a new
-generator (about 10% each) or a Superformula (5%). Each addition also reshuffles a few seeds among
-the earlier new generators (Möbius: 3.5%). Mutate is unchanged for every look on the original
+Hopf fibration, Superformula, Spirograph, Pendulum wave, Loxodromic spiral and Möbius strip were
+added without disturbing old seeds: the original draw still picks among the original generators
+and base shapes, and a second random stream gives the new ones their fair share (1 in 11 each for
+generators, 1 in 7 for the base shape) and draws the superformula settings. Measured on 20,000
+seeds against the release before any were added: 51% come out exactly as before; the rest became
+looks on a new generator (about 9% each) or a Superformula (4%). Each addition also reshuffles a
+few seeds among the earlier new generators (Möbius strip: 2.7%). Mutate is unchanged for every look on the original
 generators; on Pendulum looks it now nudges Period along its log track. New generators or base shapes should follow the same pattern
 (`pickKeepingSeeds`, `onBase`).

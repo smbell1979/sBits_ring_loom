@@ -420,8 +420,13 @@ const COVER_SCALE = 1.05;
 const GENS = {
   cover: "Two Lanes (measured)", sphere: "Sphere spin", again: "Transform again",
   blend: "Two-ellipse blend", harmono: "Harmonograph", slinky: "Slinky", hopf: "Hopf fibration",
-  spiro: "Spirograph", pendulum: "Pendulum wave", mobius: "Möbius spiral",
+  spiro: "Spirograph", pendulum: "Pendulum wave", loxo: "Loxodromic spiral",
+  strip: "Möbius strip",
 };
+// Generator ids that were renamed: files, favourites and history saved under the old id still
+// open as that generator rather than falling back to the default. Up here, not beside
+// cleanParams: that runs during start-up, before a const further down exists.
+const GEN_ALIASES = { mobius: "loxo" };  // "Möbius spiral" became "Loxodromic spiral"
 const BASES = {
   circle: "Circle / squircle", polygon: "Polygon", star: "Star", flower: "Flower",
   heart: "Heart", infinity: "Infinity loop", super: "Superformula",
@@ -453,7 +458,7 @@ const PALETTES = {
 const paletteLabels =Object.fromEntries(Object.entries(PALETTES).map(([k, v]) => [k, v.label]));
 
 // idle(p): why a control has no effect right now (shown dimmed with this as a tooltip), or null.
-const FLAT_GENS = new Set(["cover", "again", "blend", "harmono", "spiro", "mobius"]);
+const FLAT_GENS = new Set(["cover", "again", "blend", "harmono", "spiro", "loxo"]);
 // Harmonograph, Hopf fibration and Spirograph draw their own curves (Lissajous loops; fibre
 // circles; rolling-circle curves), so the base shape and its settings do nothing there.
 const IDLE_HARMONO = p => p.gen === "harmono" ? "Harmonograph draws its own curves, so the base shape is ignored."
@@ -571,13 +576,22 @@ const SCHEMA = [
     tip: "0 swings the rings over like gimbals; 90 turns them flat in the picture, which shows only on shapes that aren't circles." },
   { id: "pwShrink", gen: "pendulum", label: "Shrink", type: "range", min: 0, max: 1, step: 0.01, def: 0.55, r: [0.2, 0.8] },
 
-  // Moebius spiral (ringPre): the base shape carried along the orbit of one loxodromic Moebius map,
+  // Loxodromic spiral (ringPre): the base shape carried along the orbit of one loxodromic Moebius map,
   // out of one pole and into the other. Drift streams the rings along the spiral.
-  { id: "mbSpread", gen: "mobius", label: "Spread", type: "range", min: 3, max: 12, step: 0.05, def: 7, r: [5, 10],
+  { id: "mbSpread", gen: "loxo", label: "Spread", type: "range", min: 3, max: 12, step: 0.05, def: 7, r: [5, 10],
     tip: "How far toward the two poles the rings reach: more and they shrink away into the poles." },
-  { id: "mbTwist", gen: "mobius", label: "Twist", type: "range", min: -3, max: 3, step: 0.01, def: 1.2, r: [-2.2, 2.2],
+  { id: "mbTwist", gen: "loxo", label: "Twist", type: "range", min: -3, max: 3, step: 0.01, def: 1.2, r: [-2.2, 2.2],
     tip: "How tightly the rings spiral round the poles (0: straight out of one and into the other). Very tight twists with big rings swing some rings out into huge arcs, as the true Möbius map does." },
-  { id: "mbSize", gen: "mobius", label: "Ring size", type: "range", min: 0.05, max: 0.6, step: 0.005, def: 0.35, r: [0.15, 0.5] },
+  { id: "mbSize", gen: "loxo", label: "Ring size", type: "range", min: 0.05, max: 0.6, step: 0.005, def: 0.35, r: [0.15, 0.5] },
+
+  // Moebius strip (ringPre): rings round a loop, each drawn across the band, its long axis turning
+  // half a turn per trip round.
+  { id: "msRadius", gen: "strip", label: "Loop size", type: "range", min: 0.2, max: 1, step: 0.005, def: 0.62, r: [0.45, 0.8] },
+  { id: "msWidth", gen: "strip", label: "Band width", type: "range", min: 0.05, max: 0.7, step: 0.005, def: 0.32, r: [0.15, 0.45] },
+  { id: "msFlat", gen: "strip", label: "Thickness", type: "range", min: 0, max: 1, step: 0.01, def: 0.3, r: [0, 0.6],
+    tip: "How deep each ring is across the band. 0 flattens it to a line, drawing the strip itself; 1 is round, and on circles the twist no longer shows." },
+  { id: "msTwists", gen: "strip", label: "Half twists", type: "range", min: 0, max: 9, step: 1, def: 1, r: [1, 5],
+    tip: "Half turns the band makes going once round. 1 is the Möbius strip; any odd number gives a band with only one side, even numbers two." },
 
   { id: "speed", group: "motion", label: "Time speed", type: "range", min: 0, max: 3, step: 0.01, def: 1, r: null },
   { id: "drift", group: "motion", label: "Drift", type: "range", min: 0, max: 2, step: 0.01, def: 0.3, r: [0.1, 1],
@@ -664,7 +678,8 @@ const PRESETS = {
   "Triangle twist": { gen: "sphere", base: "polygon", sides: 3, rings: 60, alpha: 48, sweep: 220, drift: 0.45, palette: "ice", glow: 7, width: 0.9 },
   "Hopf links": { gen: "hopf", rings: 48, hopfLat: 80, hopfSpread: 70, hopfTurns: 1, drift: 0.4, pitch: 35, yaw: 20, persp: 0.4, palette: "spectrum", spread: 0.9, glow: 7, width: 0.9 },
   "Spirograph": { gen: "spiro", rings: 40, spMode: "hypo", spLobes: 7, spPen: 1.2, spPenSpread: 1.2, spTwist: 2, spShrink: 0.4, drift: 0.4, palette: "vapor", glow: 7, width: 0.9, alphaL: 0.75 },
-  "Möbius spiral": { gen: "mobius", rings: 64, mbSpread: 7.5, mbTwist: 1.4, mbSize: 0.4, drift: 0.5, palette: "spectrum", loopColors: true, glow: 7, width: 0.9, zoom: 0.9 },
+  "Möbius strip": { gen: "strip", rings: 90, msRadius: 0.62, msWidth: 0.34, msFlat: 0.12, msTwists: 1, drift: 0.3, pitch: 55, yaw: 20, persp: 0.45, palette: "aurora", loopColors: true, glow: 7, width: 0.9 },
+  "Loxodromic spiral": { gen: "loxo", rings: 64, mbSpread: 7.5, mbTwist: 1.4, mbSize: 0.4, drift: 0.5, palette: "spectrum", loopColors: true, glow: 7, width: 0.9, zoom: 0.9 },
   "Pendulum wave": { gen: "pendulum", rings: 24, pwPeriod: 30, pwSwings: 6, pwSwing: 60, pwShrink: 0.6, base: "polygon", sides: 6, pitch: 20, persp: 0.4, palette: "aurora", glow: 7, width: 1 },
   "Superformula bloom": { gen: "again", base: "super", sfM: 6, sfN1: 0.9, sfN2: 6, sfN3: 9, rings: 34, squashA: 0.94, stretchA: 0.99, turn: 4, drift: 0.5, palette: "ember", glow: 6, width: 0.9, alphaL: 0.7 },
 };
@@ -739,7 +754,7 @@ function randomHex(rnd) {
 // Generators and base shapes Randomize knew before any were added (the first entries of GENS and
 // BASES). Picking from the longer lists directly re-buckets the draw and changed the generator of
 // 49% of seeds (measured, 2002 seeds); instead the old draw picks among these, and the side stream
-// hands each later addition its fair share (1 in 10 each, with four added), so the rest are
+// hands each later addition its fair share (1 in 11 each, with five added), so the rest are
 // unchanged. Each addition does take its share from the seeds still on the originals.
 const SEED_GENS = 6, SEED_BASES = 6;
 function pickKeepingSeeds(keys, nOld, r, side) {
@@ -1021,9 +1036,9 @@ function baseXY(th, c, s, p, e) {
 
 // Sized so the default Hopf look (latitude 70, spread 60) fills about like Sphere spin.
 const HOPF_SCALE = 0.45;
-// Moebius spiral poles at +-MOB_SCALE: at 0.9 the default look reached 1.23 and the pole spirals
+// Loxodromic spiral poles at +-LOXO_SCALE: at 0.9 the default look reached 1.23 and the pole spirals
 // ran off the frame; at 0.7 the default fits (0.96).
-const MOB_SCALE = 0.7;
+const LOXO_SCALE = 0.7;
 
 // One ring's points before the view: x, y, z per point (the last repeats the first).
 function ringPre(k, N, M, time, ctx) {
@@ -1031,7 +1046,7 @@ function ringPre(k, N, M, time, ctx) {
   const out = new Float64Array(3 * (M + 1));
   const e = 2 / p.superexp, lobes = Math.round(p.lobes), wob = p.wobble;
   const wph = TAU * p.ringPhase * k + p.wobbleSpeed * time;
-  let lin = null, R3 = null, harm = null, sl = null, hopf = null, spiro = null, mob = null;
+  let lin = null, R3 = null, harm = null, sl = null, hopf = null, spiro = null, mob = null, strip = null;
   if (ctx.mats) lin = ctx.mats[k];
   else if (p.gen === "hopf") {
     // Ring k is the Hopf fibre over one point of the 2-sphere: latitude (polar angle from the
@@ -1061,7 +1076,7 @@ function ringPre(k, N, M, time, ctx) {
     const ang = p.pwSwing * Math.sin(TAU * (Math.round(p.pwSwings) + k) * time / p.pwPeriod) * D2R;
     const t = p.pwAxis * D2R, sc = 1 - p.pwShrink * u;
     R3 = rotAxis([Math.cos(t), 0, Math.sin(t)], ang).map(v => v * sc);
-  } else if (p.gen === "mobius") {
+  } else if (p.gen === "loxo") {
     // Work in w, where the map is plain multiplication by lambda^t = e^(t + i Twist t): a spiral of
     // copies of the shape, placed at -1 and sized Ring size, shrinking into w = 0 and growing out
     // to infinity. z = (w + 1) / (w - 1) then carries 0 and infinity to the poles -1 and +1: a
@@ -1072,9 +1087,19 @@ function ringPre(k, N, M, time, ctx) {
     // ring's shape gets near it only when the spiral passes its angle close to |w| = 1, which
     // needs a tight Twist with a big Ring size, and swings that ring out into a huge arc -- the
     // true image, not an error.
-    const L = p.mbSpread, tt = -L / 2 + mobiusSlot(p, k, N, time);
+    const L = p.mbSpread, tt = -L / 2 + loxoSlot(p, k, N, time);
     const g = Math.exp(tt), ph = p.mbTwist * tt;
     mob = { lr: g * Math.cos(ph), li: g * Math.sin(ph), r: p.mbSize };
+  } else if (p.gen === "strip") {
+    // Ring k sits at angle ph round a loop of radius Loop size, in the plane across the loop (the
+    // loop's radial direction and z). It is the base shape Band width wide and Thickness x that
+    // deep, and its long axis turns Half twists x ph / 2 as it goes round: half a turn per trip for
+    // the classic strip, so a ring arrives back at its start upside down and the band has one
+    // side. Drift carries the rings round with the twist tied to the angle, so the strip holds
+    // still while the rings flow along it (a loop has no ends, so none pop).
+    const ph = TAU * k / N + p.drift * time * 0.3, a = Math.round(p.msTwists) * ph / 2;
+    strip = { cx: p.msRadius * Math.cos(ph), cy: p.msRadius * Math.sin(ph), cr: Math.cos(ph), sr: Math.sin(ph),
+      ca: Math.cos(a), sa: Math.sin(a), w: p.msWidth, d: p.msWidth * p.msFlat };
   }
   else if (p.gen === "sphere") {
     const a = p.alpha * D2R;
@@ -1097,11 +1122,16 @@ function ringPre(k, N, M, time, ctx) {
     if (lin) { x = lin[0] * px + lin[1] * py; y = lin[2] * px + lin[3] * py; z = 0; }
     else if (R3) { x = R3[0] * px + R3[1] * py; y = R3[3] * px + R3[4] * py; z = R3[6] * px + R3[7] * py; }
     else if (harm) { x = harm.A * Math.sin(p.fx * th + harm.px) * rr; y = harm.A * Math.sin(p.fy * th + harm.py) * rr; z = 0; }
+    else if (strip) {
+      // Width axis: cos a outward + sin a up; thickness axis: -sin a outward + cos a up.
+      const out = strip.w * px * strip.ca - strip.d * py * strip.sa, up = strip.w * px * strip.sa + strip.d * py * strip.ca;
+      x = strip.cx + out * strip.cr; y = strip.cy + out * strip.sr; z = up;
+    }
     else if (mob) {
       const ar = mob.r * px - 1, ai = mob.r * py;
       const wr = mob.lr * ar - mob.li * ai, wi = mob.lr * ai + mob.li * ar;
       const dr = wr - 1, den = dr * dr + wi * wi;  // |w - 1|^2
-      x = MOB_SCALE * (wr * wr + wi * wi - 1) / den; y = -2 * MOB_SCALE * wi / den; z = 0;
+      x = LOXO_SCALE * (wr * wr + wi * wi - 1) / den; y = -2 * LOXO_SCALE * wi / den; z = 0;
     }
     else if (spiro) {
       // Wheel centre at angle th, radius R; the pen turns (R / wheel radius) times as fast, the
@@ -1176,14 +1206,14 @@ function kaleidoCopies(p) {
 // the faded end: the last rings, the first, both ends (0 in the middle), or the middle (0 at both
 // ends). Curve 1 is a straight ramp; above 1 the fade comes late and steep, below 1 early. It's
 // the ring's brightness share, so blends morph it and Houdini gets it as Alpha.
-// Where ring k sits along the Moebius spiral at this time: 0 to Spread, from the pole rings
+// Where ring k sits along the Loxodromic spiral at this time: 0 to Spread, from the pole rings
 // stream out of to the one they stream into. Rings sit evenly and cycle round as Drift moves them.
-function mobiusSlot(p, k, N, time) {
+function loxoSlot(p, k, N, time) {
   const L = p.mbSpread;
   return (((k + 0.5) * L / N + p.drift * time * 0.25) % L + L) % L;
 }
 // Ring k's brightness: 1 - Ring fade x (distance toward the faded end)^curve. Rings are placed by
-// their number everywhere except the Moebius spiral, whose rings stream along it: there the fade
+// their number everywhere except the Loxodromic spiral, whose rings stream along it: there the fade
 // runs on where the ring is (0 at one pole, 1 at the other), since by number the faded rings
 // travelled with the stream and "both ends" faded two moving rings. And a ring streaming off one
 // pole comes back at the other, so the ring in the last slot before a pole fades out as the one
@@ -1191,8 +1221,8 @@ function mobiusSlot(p, k, N, time) {
 // on at full brightness, fade or no fade.
 function fadeWeight(p, k, N, time) {
   let u = N > 1 ? k / (N - 1) : 0, edge = 1;
-  if (p.gen === "mobius") {
-    u = mobiusSlot(p, k, N, time) / p.mbSpread;
+  if (p.gen === "loxo") {
+    u = loxoSlot(p, k, N, time) / p.mbSpread;
     edge = clamp(u * N, 0, 1) * clamp((1 - u) * N, 0, 1);
   }
   if (!p.fade) return edge;
@@ -1620,7 +1650,7 @@ function fmt(s, v) {
 const uiOf = s => s.ui || s;  // the scale the slider and field work in
 // Sliders that are counts: the drawing rounds them, so a typed value is rounded too rather than
 // showing a fraction that has no effect.
-const COUNTS = new Set(["sides", "rings", "res", "lobes", "mirror", "fx", "fy", "sfM"]);
+const COUNTS = new Set(["sides", "rings", "res", "lobes", "mirror", "fx", "fy", "sfM", "msTwists"]);
 // A typed value for slider s: null if the text isn't a number, else the number clamped to the
 // slider's range (files are clamped the same way on load, so a value outside it wouldn't survive).
 // Accepts a leading +, a typographic minus and a decimal comma.
@@ -1687,7 +1717,7 @@ function buildControls() {
       rampCanvas.setAttribute("aria-label", "Ring colour preview");
       rampFadeCanvas = document.createElement("canvas");
       rampFadeCanvas.className = "ramp fade";
-      rampFadeCanvas.title = "Each ring's brightness from Ring fade (white: full, black: faded out), lined up with the colours above. On the Möbius spiral: brightness along the spiral from pole to pole, which the rings stream through.";
+      rampFadeCanvas.title = "Each ring's brightness from Ring fade (white: full, black: faded out), lined up with the colours above. On the Loxodromic spiral: brightness along the spiral from pole to pole, which the rings stream through.";
       rampFadeCanvas.setAttribute("role", "img");
       rampFadeCanvas.setAttribute("aria-label", "Ring fade preview");
       rr.append(document.createElement("span"), rampCanvas, document.createElement("span"), rampFadeCanvas);
@@ -1716,7 +1746,7 @@ function drawRamp(time) {
     const x0 = Math.round(k * w / N), x1 = Math.round((k + 1) * w / N), sw = Math.max(1, x1 - x0);
     c.fillStyle = rgbToHex(...color(colourU(params, k, N)));
     c.fillRect(x0, 0, sw, h);
-    const g = 255 * clamp(fadeWeight(params, k, N, 0), 0, 1);  // Moebius: along the spiral, pole to pole
+    const g = 255 * clamp(fadeWeight(params, k, N, 0), 0, 1);  // Loxodromic: along the spiral, pole to pole
     fc.fillStyle = rgbToHex(g, g, g);
     fc.fillRect(x0, 0, sw, fh);
   }
@@ -2547,6 +2577,7 @@ function persist() {
 function cleanParams(raw) {
   const p = defaults();
   if (!raw || typeof raw !== "object") return p;
+  if (raw.gen in GEN_ALIASES) raw = Object.assign({}, raw, { gen: GEN_ALIASES[raw.gen] });
   for (const s of SCHEMA) {
     const v = raw[s.id];
     if (v === undefined) continue;
