@@ -420,7 +420,7 @@ const COVER_SCALE = 1.05;
 const GENS = {
   cover: "Two Lanes (measured)", sphere: "Sphere spin", again: "Transform again",
   blend: "Two-ellipse blend", harmono: "Harmonograph", slinky: "Slinky", hopf: "Hopf fibration",
-  spiro: "Spirograph", pendulum: "Pendulum wave",
+  spiro: "Spirograph", pendulum: "Pendulum wave", mobius: "Möbius spiral",
 };
 const BASES = {
   circle: "Circle / squircle", polygon: "Polygon", star: "Star", flower: "Flower",
@@ -453,7 +453,7 @@ const PALETTES = {
 const paletteLabels =Object.fromEntries(Object.entries(PALETTES).map(([k, v]) => [k, v.label]));
 
 // idle(p): why a control has no effect right now (shown dimmed with this as a tooltip), or null.
-const FLAT_GENS = new Set(["cover", "again", "blend", "harmono", "spiro"]);
+const FLAT_GENS = new Set(["cover", "again", "blend", "harmono", "spiro", "mobius"]);
 // Harmonograph, Hopf fibration and Spirograph draw their own curves (Lissajous loops; fibre
 // circles; rolling-circle curves), so the base shape and its settings do nothing there.
 const IDLE_HARMONO = p => p.gen === "harmono" ? "Harmonograph draws its own curves, so the base shape is ignored."
@@ -557,8 +557,12 @@ const SCHEMA = [
 
   // Pendulum wave (ringPre): every ring swings about one axis, ring k making Swings + k swings per
   // Period, so they fall out of step into waves and all line up again at the end of each period.
-  { id: "pwPeriod", gen: "pendulum", label: "Period", type: "range", min: 4, max: 120, step: 0.5, def: 30, r: [15, 60],
-    tip: "Seconds until every ring is back in line (at Time speed 1)." },
+  // Up to 12 minutes, for slow loops. On a plain 4-720 track the useful 4-60 s sat in the first
+  // few pixels, so the slider runs on a log track (the field still shows seconds), and Mutate
+  // steps along that track too: 8% of the plain range was +-57 s, drowning a 30 s period.
+  { id: "pwPeriod", gen: "pendulum", label: "Period", type: "range", min: 4, max: 720, step: 0.5, def: 30, r: [15, 60],
+    track: { min: 0, max: 1, step: 0.001, to: v => Math.log(v / 4) / Math.log(180), from: x => Math.round(8 * Math.pow(180, x)) / 2 },
+    tip: "Seconds until every ring is back in line (at Time speed 1), up to 720." },
   { id: "pwSwings", gen: "pendulum", label: "Swings", type: "range", min: 1, max: 60, step: 1, def: 8, r: [4, 20],
     tip: "Swings the first ring makes per period; each next ring makes one more." },
   { id: "pwSwing", gen: "pendulum", label: "Swing °", type: "range", min: 0, max: 180, step: 0.5, def: 50, r: [20, 90],
@@ -566,6 +570,14 @@ const SCHEMA = [
   { id: "pwAxis", gen: "pendulum", label: "Axis tilt", type: "range", min: 0, max: 90, step: 0.5, def: 0, r: [0, 60],
     tip: "0 swings the rings over like gimbals; 90 turns them flat in the picture, which shows only on shapes that aren't circles." },
   { id: "pwShrink", gen: "pendulum", label: "Shrink", type: "range", min: 0, max: 1, step: 0.01, def: 0.55, r: [0.2, 0.8] },
+
+  // Moebius spiral (ringPre): the base shape carried along the orbit of one loxodromic Moebius map,
+  // out of one pole and into the other. Drift streams the rings along the spiral.
+  { id: "mbSpread", gen: "mobius", label: "Spread", type: "range", min: 3, max: 12, step: 0.05, def: 7, r: [5, 10],
+    tip: "How far toward the two poles the rings reach: more and they shrink away into the poles." },
+  { id: "mbTwist", gen: "mobius", label: "Twist", type: "range", min: -3, max: 3, step: 0.01, def: 1.2, r: [-2.2, 2.2],
+    tip: "How tightly the rings spiral round the poles (0: straight out of one and into the other). Very tight twists with big rings swing some rings out into huge arcs, as the true Möbius map does." },
+  { id: "mbSize", gen: "mobius", label: "Ring size", type: "range", min: 0.05, max: 0.6, step: 0.005, def: 0.35, r: [0.15, 0.5] },
 
   { id: "speed", group: "motion", label: "Time speed", type: "range", min: 0, max: 3, step: 0.01, def: 1, r: null },
   { id: "drift", group: "motion", label: "Drift", type: "range", min: 0, max: 2, step: 0.01, def: 0.3, r: [0.1, 1],
@@ -652,6 +664,7 @@ const PRESETS = {
   "Triangle twist": { gen: "sphere", base: "polygon", sides: 3, rings: 60, alpha: 48, sweep: 220, drift: 0.45, palette: "ice", glow: 7, width: 0.9 },
   "Hopf links": { gen: "hopf", rings: 48, hopfLat: 80, hopfSpread: 70, hopfTurns: 1, drift: 0.4, pitch: 35, yaw: 20, persp: 0.4, palette: "spectrum", spread: 0.9, glow: 7, width: 0.9 },
   "Spirograph": { gen: "spiro", rings: 40, spMode: "hypo", spLobes: 7, spPen: 1.2, spPenSpread: 1.2, spTwist: 2, spShrink: 0.4, drift: 0.4, palette: "vapor", glow: 7, width: 0.9, alphaL: 0.75 },
+  "Möbius spiral": { gen: "mobius", rings: 64, mbSpread: 7.5, mbTwist: 1.4, mbSize: 0.4, drift: 0.5, palette: "spectrum", loopColors: true, glow: 7, width: 0.9, zoom: 0.9 },
   "Pendulum wave": { gen: "pendulum", rings: 24, pwPeriod: 30, pwSwings: 6, pwSwing: 60, pwShrink: 0.6, base: "polygon", sides: 6, pitch: 20, persp: 0.4, palette: "aurora", glow: 7, width: 1 },
   "Superformula bloom": { gen: "again", base: "super", sfM: 6, sfN1: 0.9, sfN2: 6, sfN3: 9, rings: 34, squashA: 0.94, stretchA: 0.99, turn: 4, drift: 0.5, palette: "ember", glow: 6, width: 0.9, alphaL: 0.7 },
 };
@@ -726,7 +739,7 @@ function randomHex(rnd) {
 // Generators and base shapes Randomize knew before any were added (the first entries of GENS and
 // BASES). Picking from the longer lists directly re-buckets the draw and changed the generator of
 // 49% of seeds (measured, 2002 seeds); instead the old draw picks among these, and the side stream
-// hands each later addition its fair share (1 in 9 each, with three added), so the rest are
+// hands each later addition its fair share (1 in 10 each, with four added), so the rest are
 // unchanged. Each addition does take its share from the seeds still on the originals.
 const SEED_GENS = 6, SEED_BASES = 6;
 function pickKeepingSeeds(keys, nOld, r, side) {
@@ -769,7 +782,9 @@ function mutate(p, sd) {
     if (s.type !== "range" || !s.r || s.onBase) continue;
     if (s.gen && s.gen !== q.gen) continue;
     if (rnd() < 0.5) continue;
-    q[s.id] = snap(s, q[s.id] + (rnd() * 2 - 1) * 0.08 * (s.max - s.min));
+    const d = rnd() * 2 - 1;
+    q[s.id] = snap(s, s.track ? s.track.from(clamp(s.track.to(q[s.id]) + d * 0.08 * (s.track.max - s.track.min), s.track.min, s.track.max))
+      : q[s.id] + d * 0.08 * (s.max - s.min));
   }
   if (rnd() < 0.15) { const pals = Object.keys(PALETTES); q.palette = pals[Math.floor(rnd() * pals.length)]; }
   const side = mulberry32(sd ^ 0x9e3779b9);  // as in randomize: the old draws stay put
@@ -1006,6 +1021,9 @@ function baseXY(th, c, s, p, e) {
 
 // Sized so the default Hopf look (latitude 70, spread 60) fills about like Sphere spin.
 const HOPF_SCALE = 0.45;
+// Moebius spiral poles at +-MOB_SCALE: at 0.9 the default look reached 1.23 and the pole spirals
+// ran off the frame; at 0.7 the default fits (0.96).
+const MOB_SCALE = 0.7;
 
 // One ring's points before the view: x, y, z per point (the last repeats the first).
 function ringPre(k, N, M, time, ctx) {
@@ -1013,7 +1031,7 @@ function ringPre(k, N, M, time, ctx) {
   const out = new Float64Array(3 * (M + 1));
   const e = 2 / p.superexp, lobes = Math.round(p.lobes), wob = p.wobble;
   const wph = TAU * p.ringPhase * k + p.wobbleSpeed * time;
-  let lin = null, R3 = null, harm = null, sl = null, hopf = null, spiro = null;
+  let lin = null, R3 = null, harm = null, sl = null, hopf = null, spiro = null, mob = null;
   if (ctx.mats) lin = ctx.mats[k];
   else if (p.gen === "hopf") {
     // Ring k is the Hopf fibre over one point of the 2-sphere: latitude (polar angle from the
@@ -1043,6 +1061,20 @@ function ringPre(k, N, M, time, ctx) {
     const ang = p.pwSwing * Math.sin(TAU * (Math.round(p.pwSwings) + k) * time / p.pwPeriod) * D2R;
     const t = p.pwAxis * D2R, sc = 1 - p.pwShrink * u;
     R3 = rotAxis([Math.cos(t), 0, Math.sin(t)], ang).map(v => v * sc);
+  } else if (p.gen === "mobius") {
+    // Work in w, where the map is plain multiplication by lambda^t = e^(t + i Twist t): a spiral of
+    // copies of the shape, placed at -1 and sized Ring size, shrinking into w = 0 and growing out
+    // to infinity. z = (w + 1) / (w - 1) then carries 0 and infinity to the poles -1 and +1: a
+    // Moebius map, so circles stay circles and every ring is the one before it under one fixed
+    // map. Rings sit evenly in t across Spread, cycling round it as Drift streams them (a ring
+    // leaving at one pole comes back at the other, where both are specks), and twist stays tied
+    // to t, so the rings slide along one spiral rather than turning it. z's pole is w = 1; a
+    // ring's shape gets near it only when the spiral passes its angle close to |w| = 1, which
+    // needs a tight Twist with a big Ring size, and swings that ring out into a huge arc -- the
+    // true image, not an error.
+    const L = p.mbSpread, tt = -L / 2 + (((k + 0.5) * L / N + p.drift * time * 0.25) % L + L) % L;
+    const g = Math.exp(tt), ph = p.mbTwist * tt;
+    mob = { lr: g * Math.cos(ph), li: g * Math.sin(ph), r: p.mbSize };
   }
   else if (p.gen === "sphere") {
     const a = p.alpha * D2R;
@@ -1065,6 +1097,12 @@ function ringPre(k, N, M, time, ctx) {
     if (lin) { x = lin[0] * px + lin[1] * py; y = lin[2] * px + lin[3] * py; z = 0; }
     else if (R3) { x = R3[0] * px + R3[1] * py; y = R3[3] * px + R3[4] * py; z = R3[6] * px + R3[7] * py; }
     else if (harm) { x = harm.A * Math.sin(p.fx * th + harm.px) * rr; y = harm.A * Math.sin(p.fy * th + harm.py) * rr; z = 0; }
+    else if (mob) {
+      const ar = mob.r * px - 1, ai = mob.r * py;
+      const wr = mob.lr * ar - mob.li * ai, wi = mob.lr * ai + mob.li * ar;
+      const dr = wr - 1, den = dr * dr + wi * wi;  // |w - 1|^2
+      x = MOB_SCALE * (wr * wr + wi * wi - 1) / den; y = -2 * MOB_SCALE * wi / den; z = 0;
+    }
     else if (spiro) {
       // Wheel centre at angle th, radius R; the pen turns (R / wheel radius) times as fast, the
       // other way round for a wheel inside. Epi: pen trails outward (minus); hypo: plus.
@@ -1600,7 +1638,7 @@ function buildControls() {
     let el, out = null;
     if (s.type === "range") {
       el = document.createElement("input");
-      const u = uiOf(s);
+      const u = s.track || uiOf(s);  // track: the slider's own scale, the field keeps uiOf(s)
       el.type = "range"; el.min = u.min; el.max = u.max; el.step = u.step;
       out = numberField(s);
     } else if (s.type === "select") {
@@ -1613,7 +1651,8 @@ function buildControls() {
     }
     el.id = id;
     el.addEventListener("input", () => {
-      const v = s.type === "range" ? (s.ui ? s.ui.from(parseFloat(el.value)) : parseFloat(el.value)) : s.type === "toggle" ? el.checked : el.value;
+      const sc = s.track || s.ui;
+      const v = s.type === "range" ? (sc ? sc.from(parseFloat(el.value)) : parseFloat(el.value)) : s.type === "toggle" ? el.checked : el.value;
       setParam(s.id, v, true);
     });
     row.append(el);
@@ -1682,7 +1721,7 @@ function numberField(s) {
     const v = readTyped(s, f.value);
     const typed = +String(f.value).trim().replace(/[−–]/g, "-").replace(",", ".");
     if (Math.abs(d - typed) > 1e-12) flash();  // clamped or rounded: the field now shows what was used
-    if (v !== params[s.id]) { inputs[s.id].el.value = d; setParam(s.id, v, true); }
+    if (v !== params[s.id]) { inputs[s.id].el.value = s.track ? s.track.to(v) : d; setParam(s.id, v, true); }
     show();
   };
   f.addEventListener("change", commit);
@@ -1702,7 +1741,7 @@ function numberField(s) {
 function syncUI() {
   for (const { s, el, out, row } of Object.values(inputs)) {
     const v = params[s.id];
-    if (s.type === "toggle") el.checked = !!v; else el.value = s.ui ? s.ui.to(v) : v;
+    if (s.type === "toggle") el.checked = !!v; else el.value = s.track ? s.track.to(v) : s.ui ? s.ui.to(v) : v;
     if (out && out !== document.activeElement) out.value = fmt(s, v);
     row.hidden = (s.gen && s.gen !== params.gen) || (s.when && !s.when(params));
   }

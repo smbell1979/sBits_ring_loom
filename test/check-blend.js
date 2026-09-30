@@ -12,7 +12,7 @@ const exposed = ["computeFrame", "blendFrames", "pairUp", "morphFrame", "rollFra
   "readLibrary", "writeLibrary", "libraryUpsert", "parseSequenceFile", "sequenceFileData", "cardsForSave", "makeCard", "seqDirty", "seqKey",
   "lookFileData", "readLookFile", "params", "fmt", "readTyped", "BY_ID", "rgbToOklab", "oklabToRgb", "oklabToLinear", "mixColour", "hexToRgb",
   "historyPush", "favouritesAdd", "shelfEntry", "parseFavouritesFile", "applyParams", "hist", "randomize",
-  "ringPre", "superR", "superShape"];
+  "ringPre", "superR", "superShape", "mutate"];
 js = js.replace(hook, hook + "\nglobalThis.__t = {" + exposed.map(n => `get ${n}() { return ${n}; }`).join(", ") + "};");
 
 // In-memory localStorage whose behaviour the library tests can switch: normal, throwing
@@ -654,6 +654,62 @@ setTimeout(() => {
       `after 1: ${gap(f0, frameAt(P)).toExponential(1)}, after 2: ${gap(f0, frameAt(2 * P)).toExponential(1)}, at a third: ${gap(f0, frameAt(P / 3)).toFixed(2)}`);
   }
 
+  // Moebius spiral, checked with plain complex arithmetic on the drawn points. The Moebius map
+  // taking three points of one ring to the same three points of the next is fitted from those
+  // points alone; it must then carry every other point of that ring onto the next ring, be the
+  // same map for every consecutive pair, and fix the two poles (+-0.7). Circle rings must come
+  // out circles (Moebius maps keep circles circles). And with Drift, the rings must come back to
+  // exactly their own places after one full cycle of the spread.
+  {
+    const cm = (a, b) => [a[0] * b[0] - a[1] * b[1], a[0] * b[1] + a[1] * b[0]];
+    const cd = (a, b) => { const d = b[0] * b[0] + b[1] * b[1]; return [(a[0] * b[0] + a[1] * b[1]) / d, (a[1] * b[0] - a[0] * b[1]) / d]; };
+    const cs = (a, b) => [a[0] - b[0], a[1] - b[1]];
+    // Cross-ratio map sending z1, z2, z3 to 0, 1, infinity, and its inverse.
+    const toStd = (z1, z2, z3) => z => cd(cm(cs(z, z1), cs(z2, z3)), cm(cs(z, z3), cs(z2, z1)));
+    const fromStd = (w1, w2, w3) => s => { const q = cm(s, cd(cs(w2, w1), cs(w2, w3))); return cd(cs(w1, cm(q, w3)), cs([1, 0], q)); };
+    const mobRings = (o, time = 0) => { const p = Object.assign(t.defaults(), { gen: "mobius", rings: 16, wobble: 0, drift: 0 }, o), N = p.rings;
+      return [...Array(N).keys()].map(k => { const f = t.ringPre(k, N, 240, time, { p }); return [...Array(240).keys()].map(j => [f[3 * j], f[3 * j + 1]]); }); };
+    const fit = (a, b) => { const A = toStd(a[0], a[80], a[160]), B = fromStd(b[0], b[80], b[160]); return z => B(A(z)); };
+    let worstMap = 0, worstSame = 0, worstPole = 0;
+    for (const o of [{ base: "star", sides: 5 }, { base: "heart", mbTwist: -2, mbSize: 0.5 }, { mbTwist: 0, mbSpread: 4 }]) {
+      const R = mobRings(o), T = fit(R[3], R[4]), Tscale = Math.max(...R.flat().map(q => Math.hypot(q[0], q[1])));
+      for (let k = 0; k + 1 < R.length; k++) {
+        const Tk = fit(R[k], R[k + 1]);
+        for (let j = 0; j < 240; j += 7) {
+          const g = Tk(R[k][j]); worstMap = Math.max(worstMap, Math.hypot(g[0] - R[k + 1][j][0], g[1] - R[k + 1][j][1]) / Tscale);
+          const h = T(R[k][j]); worstSame = Math.max(worstSame, Math.hypot(h[0] - R[k + 1][j][0], h[1] - R[k + 1][j][1]) / Tscale);
+        }
+      }
+      for (const pole of [[0.7, 0], [-0.7, 0]]) { const f = T(pole); worstPole = Math.max(worstPole, Math.hypot(f[0] - pole[0], f[1] - pole[1])); }
+    }
+    check("Möbius rings are one fixed Möbius map apart, and it fixes the two poles", worstMap < 1e-8 && worstSame < 1e-8 && worstPole < 1e-8,
+      `pair fit off ${worstMap.toExponential(1)}, one map for all off ${worstSame.toExponential(1)}, poles moved ${worstPole.toExponential(1)}`);
+    let worstCirc = 0;
+    for (const r of mobRings({ mbTwist: 1.7, mbSize: 0.45 })) {
+      const c = circleOf(r.map(q => [q[0], q[1], 0]));
+      for (const q of r) worstCirc = Math.max(worstCirc, Math.abs(Math.hypot(q[0] - c.cen[0], q[1] - c.cen[1]) - c.r) / c.r);
+    }
+    check("Möbius spiral keeps circle rings exact circles", worstCirc < 1e-9, `worst ${worstCirc.toExponential(1)}`);
+    const L = 7, d = 0.5, loop = L / (0.25 * d), gap = (a, b) => Math.max(...a.map((r, k) => Math.max(...r.map((q, j) => Math.hypot(q[0] - b[k][j][0], q[1] - b[k][j][1])))));
+    const at = time => mobRings({ base: "star", mbSpread: L, drift: d }, time), m0 = at(0);
+    check("Möbius rings stream along the spiral and are back in place after one cycle",
+      gap(m0, at(loop)) < 1e-9 && gap(m0, at(loop / 3)) > 0.01, `after a cycle ${gap(m0, at(loop)).toExponential(1)}, a third of the way ${gap(m0, at(loop / 3)).toFixed(3)}`);
+  }
+
+  // Pendulum Period's log slider track: ends at 4 and 720 s, 30 s round-trips exactly and sits well
+  // into the track (a plain 4-720 track put it at 3.6%), and Mutate nudges it by at most 180^0.08
+  // (x1.52) either way rather than +-57 s.
+  {
+    const s = t.BY_ID.pwPeriod, tr = s.track;
+    const ends = [tr.from(tr.min), tr.from(tr.max)], at30 = tr.to(30), back = tr.from(at30);
+    let worst = 1;
+    const base = Object.assign(t.defaults(), { gen: "pendulum" });
+    for (let sd = 1; sd <= 400; sd++) { const q = t.mutate(base, sd); worst = Math.max(worst, q.pwPeriod / 30, 30 / q.pwPeriod); }
+    check("Period slider runs 4 to 720 s on a log track; Mutate nudges it in proportion",
+      ends[0] === 4 && ends[1] === 720 && back === 30 && at30 > 0.35 && worst <= Math.pow(180, 0.08) * 1.01 && worst > 1.3,
+      `ends ${ends.join("/")}, 30 s at ${(100 * at30).toFixed(0)}% of the track, biggest Mutate step x${worst.toFixed(2)}`);
+  }
+
   // Seeds: adding generators and base shapes must leave every seed that still picks an original
   // generator and base exactly as before. The digest is of randomize() output from the release
   // before any were added (1a31786) for those seeds (only the settings it had; seeds 131..39300),
@@ -661,7 +717,7 @@ setTimeout(() => {
   // re-record it then, from that same release, and add the new settings to NEW.
   {
     const NEW = new Set(["sfM", "sfN1", "sfN2", "sfN3", "hopfLat", "hopfSpread", "hopfTurns",
-      "spMode", "spLobes", "spPen", "spPenSpread", "spTwist", "spShrink", "pwPeriod", "pwSwings", "pwSwing", "pwAxis", "pwShrink"]);
+      "spMode", "spLobes", "spPen", "spPenSpread", "spTwist", "spShrink", "pwPeriod", "pwSwings", "pwSwing", "pwAxis", "pwShrink", "mbSpread", "mbTwist", "mbSize"]);
     const ORIGINAL = new Set(["cover", "sphere", "again", "blend", "harmono", "slinky"]);
     let h = 2166136261, n = 0, added = 0, sup = 0;
     for (let k = 1; k <= 300; k++) {
@@ -672,7 +728,7 @@ setTimeout(() => {
       const s = JSON.stringify(Object.keys(x).filter(q => !NEW.has(q)).map(q => [q, x[q]]));
       for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0;
     }
-    check("seeds on an original generator and base come out as before", h === 777834169 && n === 183, `${n} seeds, digest ${h}; ${added} now on a new generator, ${sup} now Superformula`);
+    check("seeds on an original generator and base come out as before", h === 949772110 && n === 161, `${n} seeds, digest ${h}; ${added} now on a new generator, ${sup} now Superformula`);
   }
 
   t.seq.savedKey = t.seqKey();

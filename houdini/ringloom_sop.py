@@ -67,7 +67,7 @@ PALETTES = {
     "sunset": ["#7b2ff7", "#f107a3", "#ff6a00", "#ffd000"],
     "custom": None,
 }
-GENS = ["cover", "sphere", "again", "blend", "harmono", "slinky", "hopf", "spiro", "pendulum"]
+GENS = ["cover", "sphere", "again", "blend", "harmono", "slinky", "hopf", "spiro", "pendulum", "mobius"]
 BASES = ["circle", "polygon", "star", "flower", "heart", "infinity", "super"]
 
 # (id, type, default, min, max) for numbers; (id, type, default, options) for menus. Order and
@@ -121,11 +121,14 @@ SCHEMA = [
     ("spPenSpread", "range", 0.8, -2, 2),
     ("spTwist", "range", 1.5, -30, 30),
     ("spShrink", "range", 0.3, 0, 1),
-    ("pwPeriod", "range", 30, 4, 120),
+    ("pwPeriod", "range", 30, 4, 720),
     ("pwSwings", "range", 8, 1, 60),
     ("pwSwing", "range", 50, 0, 180),
     ("pwAxis", "range", 0, 0, 90),
     ("pwShrink", "range", 0.55, 0, 1),
+    ("mbSpread", "range", 7, 3, 12),
+    ("mbTwist", "range", 1.2, -3, 3),
+    ("mbSize", "range", 0.35, 0.05, 0.6),
     ("speed", "range", 1, 0, 3),
     ("drift", "range", 0.3, 0, 2),
     ("rotate", "range", 0, -180, 180),
@@ -458,6 +461,7 @@ def base_xy(th, c, s, p, e):
 
 
 HOPF_SCALE = 0.45
+MOB_SCALE = 0.7  # Moebius spiral poles at +-MOB_SCALE (page explains)
 
 
 def ring_world(p, k, N, M, time, mats):
@@ -520,6 +524,21 @@ def ring_world(p, k, N, M, time, mats):
         sc = 1 - p["pwShrink"] * u
         R = [v * sc for v in rot_axis([math.cos(t), 0, math.sin(t)], ang)]
         x, y, z = R[0] * px + R[1] * py, R[3] * px + R[4] * py, R[6] * px + R[7] * py
+    elif g == "mobius":
+        # In w the map is multiplication by e^(t + i Twist t); z = (w + 1) / (w - 1) carries its
+        # fixed points 0 and infinity to the poles -1 and +1. Rings sit evenly in t across Spread and
+        # cycle round it with Drift (page ringPre, which explains the huge arcs near z's pole w = 1).
+        L = p["mbSpread"]
+        tt = -L / 2 + math.fmod(math.fmod((k + 0.5) * L / N + p["drift"] * time * 0.25, L) + L, L)
+        gm, ph = math.exp(tt), p["mbTwist"] * tt
+        lr, li = gm * math.cos(ph), gm * math.sin(ph)
+        ar, ai = p["mbSize"] * px - 1, p["mbSize"] * py
+        wr, wi = lr * ar - li * ai, lr * ai + li * ar
+        dr = wr - 1
+        den = dr * dr + wi * wi
+        x = MOB_SCALE * (wr * wr + wi * wi - 1) / den
+        y = -2 * MOB_SCALE * wi / den
+        z = np.zeros_like(x)
     else:  # slinky
         # One full turn: spaced 360/N, so the last ring stops a gap short of the first (page ringPre).
         ph = (TAU * k / N if p["closed"] else TAU * p["loops"] * u) + p["drift"] * time * 0.4

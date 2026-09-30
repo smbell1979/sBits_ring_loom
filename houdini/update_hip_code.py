@@ -32,7 +32,8 @@ code = open(os.path.join(HERE, "ringloom_sop.py"), encoding="utf-8").read()
 # Two looks with different rolls, sampled a quarter of the way through a blend that adds an extra
 # roll turn, so the check covers the newest view and sequence features, not just one still look.
 # The newest generators and base shape ride along: Hopf fibration on one side, Pendulum wave on an
-# odd lopsided Superformula (drawn over two turns) on the other, Spirograph in the ortho probe.
+# odd lopsided Superformula (drawn over two turns) on the other, a Moebius spiral in the ortho
+# probe. (Spirograph is covered by test_parity; the SOP runs the same engine code.)
 probe_a = dict(E.DEFAULTS, gen="hopf", roll=63.0, yaw=-28.0, pitch=17.0, persp=0.5, rings=9, res=64)
 # Different palettes, so the colour mixing (OKLCH, with out-of-range colours pulled toward grey)
 # is checked too, not only positions.
@@ -46,7 +47,7 @@ fd, probe_path = tempfile.mkstemp(suffix=".ringloom.json")
 with os.fdopen(fd, "w", encoding="utf-8") as fh:
     json.dump({"ringLoom": 1, "kind": "sequence", "name": "probe", "sequence": probe_cards}, fh)
 # Perspective 0: the page is orthographic, and so must the camera be.
-ortho_look = dict(E.DEFAULTS, gen="spiro", spMode="epi", yaw=30.0, pitch=25.0, persp=0.0, rings=7, res=64)
+ortho_look = dict(E.DEFAULTS, gen="mobius", base="star", yaw=30.0, pitch=25.0, persp=0.0, rings=7, res=64)
 fd, ortho_path = tempfile.mkstemp(suffix=".ringloom.json")
 with os.fdopen(fd, "w", encoding="utf-8") as fh:
     json.dump({"ringLoom": 1, "kind": "look", "name": "ortho probe", "params": ortho_look,

@@ -22,8 +22,15 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
     so every curve closes. Draws its own curves: the base shape is ignored.
   - *Pendulum wave* - rings of the base shape, each swinging about one axis; ring k makes
     Swings + k swings per Period, so they fall out of step into waves and snap back in line at the
-    end of every period (a seamless loop of Period seconds at Time speed 1). Axis tilt 0 tips them
-    over like gimbals, 90 turns them in the picture. Drift is ignored.
+    end of every period (a seamless loop of Period seconds at Time speed 1, up to 720). Period's
+    slider is logarithmic so the short periods aren't squeezed into its first pixels; the field
+    shows seconds. Axis tilt 0 tips them over like gimbals, 90 turns them in the picture. Drift is
+    ignored.
+  - *Möbius spiral* - the base shape carried along the orbit of one loxodromic Möbius map: rings
+    stream out of one pole and spiral into the other. Circles stay exact circles; other shapes
+    bend conformally. Spread (how far into the poles), Twist, Ring size; Drift streams the rings
+    along the spiral, a seamless loop (pair it with Loop colours). A tight Twist with big rings
+    swings a few rings out into huge arcs where they pass the map's pole: the true image.
   - *Two-ellipse blend* - interpolates a start ellipse into an end ellipse.
   - *Two Lanes (measured)* - 31 ellipses measured from the Two Lanes "Searching" cover. The two
     outermost are near-circles whose measured angles were noise, so they follow the fitted trend
@@ -257,11 +264,12 @@ reordering randomized parameters changes what every seed produces. Randomize pic
 palette, so adding a palette changes the colour a seed number gives (only its colour: the palette
 is one random draw). Saved looks, sequences and the default store the palette by name, so they
 never change.
-Hopf fibration, Superformula, Spirograph and Pendulum wave were added without disturbing old
-seeds: the original draw still picks among the original generators and base shapes, and a second
-random stream gives the new ones their fair share (1 in 9 each for generators, 1 in 7 for the base
-shape) and draws the superformula settings. Measured on 20,000 seeds against the release before
-any were added: 62% come out exactly as before; the rest became looks on a new generator (11% each)
-or a Superformula (5%). Adding Spirograph and Pendulum wave on their own left 78% of seeds as they
-were a release earlier. Mutate is unchanged for every look. New generators or base shapes should follow the same pattern
+Hopf fibration, Superformula, Spirograph, Pendulum wave and Möbius spiral were added without
+disturbing old seeds: the original draw still picks among the original generators and base shapes,
+and a second random stream gives the new ones their fair share (1 in 10 each for generators, 1 in
+7 for the base shape) and draws the superformula settings. Measured on 20,000 seeds against the
+release before any were added: 56% come out exactly as before; the rest became looks on a new
+generator (about 10% each) or a Superformula (5%). Each addition also reshuffles a few seeds among
+the earlier new generators (Möbius: 3.5%). Mutate is unchanged for every look on the original
+generators; on Pendulum looks it now nudges Period along its log track. New generators or base shapes should follow the same pattern
 (`pickKeepingSeeds`, `onBase`).
