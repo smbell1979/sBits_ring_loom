@@ -56,8 +56,10 @@ module.exports = async function handler(req, res) {
     const code = String(body.code || "").toLowerCase();
     if (!CODE.test(code)) return res.status(400).json({ error: "That isn't a sync code." });
     const path = pathFor(code);
+    const tried = [];  // the ETags each attempt wrote against, reported if every attempt fails
     for (let attempt = 0; attempt < 4; attempt++) {
       const { data, etag } = await readLibrary(path);
+      tried.push(etag);
       const merged = mergeLibraries(data, body);
       const text = JSON.stringify(merged);
       if (text.length > MAX_BYTES) return res.status(413).json({ error: "The library is too large to sync." });
@@ -68,7 +70,7 @@ module.exports = async function handler(req, res) {
         if (!(e instanceof BlobPreconditionFailedError)) throw e;  // another device wrote first: read again and merge again
       }
     }
-    return res.status(409).json({ error: "The library kept changing under us; try again." });
+    return res.status(409).json({ error: "The library kept changing under us; try again.", tried });
   } catch (e) {
     return res.status(e && e.message === "too large" ? 413 : 500).json({ error: e && e.message ? e.message : "Sync failed." });
   }
