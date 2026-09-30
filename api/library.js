@@ -30,7 +30,7 @@ async function readLibrary(path) {
   const text = await new Response(r.stream).text();
   let data;
   try { data = JSON.parse(text); } catch { data = null; }
-  return { data: data && typeof data === "object" ? data : { favourites: [], sequences: [] }, etag: r.blob.etag };
+  return { data: data && typeof data === "object" ? data : { favourites: [], sequences: [] }, etag };
 }
 
 async function readBody(req) {
