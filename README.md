@@ -79,6 +79,10 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
     and unwinds exactly as the look arrives. It is a twist of the whole picture rather than each
     point taking its own arc, because points whose start and end lie opposite each other across
     the centre could pick different ways round and tear a ring apart.
+- **Phones and narrow windows** (860px and under): the canvas is pinned to the top of the screen
+  (half its height at most) and the controls scroll beneath it, with the sequence and saving last,
+  so the picture stays in view while you change things. On a phone held sideways the canvas is
+  pinned on the left instead, the controls scrolling on the right.
 - **Favourites and History** are tabs beside the Sequence. **★ Add current look** (or **F**) keeps
   what's on screen; click a favourite's picture to load it, **+ Seq** to add it to the sequence,
   rename it in place. History keeps the last 30 looks you moved away from (Randomize, Mutate,

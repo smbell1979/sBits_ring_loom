@@ -266,17 +266,40 @@ textarea {
   border: 1px solid var(--line); border-radius: 4px; padding: 8px; font: 11.5px/1.4 var(--mono);
 }
 
-/* Narrow windows and phones: canvas, filmstrip, then controls, in one page-scrolling column. */
+/* Narrow windows and phones: one page-scrolling column with the canvas pinned to the top, so the
+   picture stays in view while the controls below it scroll (Scott: no scrolling back and forth to
+   see what a slider did); the sequence and saving come last. The canvas is square up to half the
+   screen's height, then wider than tall, so the controls always get the other half. Its box-shadow
+   paints the page colour over the padding and the row gap beside and below it, which the scrolling
+   controls would otherwise show through (the shadow isn't clipped by the stage's overflow). */
 @media (max-width: 860px) {
   .app {
     --side: calc(100vw - 32px);
     height: auto; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto;
-    grid-template-areas: "stage" "dock" "rack";
+    grid-template-areas: "stage" "rack" "dock";
+    padding-top: 0;
   }
-  .stage { aspect-ratio: 1 / 1; max-width: 100%; }
+  .stage {
+    aspect-ratio: 1 / 1; max-width: 100%; max-height: 50vh;
+    position: sticky; top: 0; z-index: 5;
+    box-shadow: 0 0 0 16px var(--ink);
+  }
+  @supports (height: 100dvh) { .stage { max-height: 50dvh; } }
   .dock { grid-template-columns: minmax(0, 1fr); }
   .rack-cols, .col, .seq-area, .files { overflow: visible; height: auto; }
   .hint { display: none; }
+}
+/* A phone on its side: pinned at the top, the canvas would have shrunk to a small square with the
+   controls scrolling past beside it. Instead it is pinned on the left, as tall as the screen, with
+   the controls and then the dock scrolling on the right. */
+@media (max-width: 860px) and (orientation: landscape) {
+  .app {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto;
+    grid-template-areas: "stage rack" "stage dock";
+    padding-top: 16px;
+  }
+  .stage { max-height: calc(100vh - 32px); top: 16px; align-self: start; box-shadow: none; }
+  @supports (height: 100dvh) { .stage { max-height: calc(100dvh - 32px); } }
 }
 </style>
 
