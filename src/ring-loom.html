@@ -1225,6 +1225,9 @@ const view = document.getElementById("view");
 const vctx = view.getContext("2d");
 const lines = document.createElement("canvas");
 const lctx = lines.getContext("2d");
+// What Trails keep: the lines, with no background, fading by alpha (accumulated over frames).
+const accum = document.createElement("canvas");
+const actx = accum.getContext("2d");
 let dpr = 1, cssW = 1, cssH = 1;
 
 const FILTER_OK = (() => {
@@ -1236,7 +1239,7 @@ function resize() {
   const r = stage.getBoundingClientRect();
   dpr = Math.min(2, window.devicePixelRatio || 1);
   cssW = Math.max(1, r.width); cssH = Math.max(1, r.height);
-  for (const c of [view, lines]) { c.width = Math.round(cssW * dpr); c.height = Math.round(cssH * dpr); }
+  for (const c of [view, lines, accum]) { c.width = Math.round(cssW * dpr); c.height = Math.round(cssH * dpr); }
   dirty = true;
 }
 new ResizeObserver(resize).observe(stage);
@@ -1644,21 +1647,36 @@ function renderFrame(f) {
     }
   }
 
+  // Trails accumulate the lines alone, fading by alpha: with no background in the buffer, a
+  // coloured background never drifts (the old fade toward it undershot by 8 levels at Trails
+  // 0.97), and the glow can be made from the accumulated picture rather than added to it every
+  // frame -- added, it built up 1 / (1 - Trails) times (33x at 0.97) into a grey disc out to the
+  // rings' reach; derived, it can't build up, and the trail ribbons glow too.
+  actx.setTransform(1, 0, 0, 1, 0, 0);
+  actx.filter = "none";
+  actx.globalCompositeOperation = "destination-out";
+  actx.globalAlpha = L.trails > 0 ? 1 - L.trails : 1;
+  actx.fillStyle = "#000";
+  actx.fillRect(0, 0, W, H);
+  actx.globalCompositeOperation = L.additive ? "lighter" : "source-over";
+  actx.globalAlpha = 1;
+  actx.drawImage(lines, 0, 0);
+
   vctx.setTransform(1, 0, 0, 1, 0, 0);
   vctx.globalCompositeOperation = "source-over";
-  vctx.globalAlpha = L.trails > 0 ? 1 - L.trails : 1;
+  vctx.globalAlpha = 1;
   vctx.fillStyle = rgbToHex(...L.bg);
   vctx.fillRect(0, 0, W, H);
   if (L.glow > 0 && FILTER_OK) {
     vctx.globalCompositeOperation = "lighter";
     vctx.globalAlpha = 0.85;
     vctx.filter = `blur(${(L.glow * dpr).toFixed(1)}px)`;
-    vctx.drawImage(lines, 0, 0);
+    vctx.drawImage(accum, 0, 0);
     vctx.filter = "none";
   }
   vctx.globalCompositeOperation = L.additive ? "lighter" : "source-over";
   vctx.globalAlpha = 1;
-  vctx.drawImage(lines, 0, 0);
+  vctx.drawImage(accum, 0, 0);
 
   lastFrame = { rings: f.rings, hex, look: L, w: cssW, h: cssH };
 }

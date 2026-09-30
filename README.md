@@ -153,6 +153,10 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
   record it the ordinary way, which can repeat or skip a frame at the seam (Chrome kept 351,
   357, 359 or 361 of 360 frames on different runs).
 - **Settings code** copies the exact look as JSON so it can be pasted back later.
+- **Trails** keep the lines from frame to frame, fading by alpha, with the glow made afresh
+  each frame from that accumulated picture rather than added to it (added, it built up
+  1 / (1 - Trails) times -- 33x at 0.97 -- into a grey wash out to the rings' reach); the trail
+  ribbons glow too. The background is never part of what accumulates, so a coloured one holds.
 
 Drag the canvas to orbit the view, shift-drag to roll it; double-click resets it. Space plays and pauses.
 
