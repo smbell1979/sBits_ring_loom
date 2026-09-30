@@ -73,7 +73,12 @@ body { margin: 0; background: var(--ink); color: var(--fg); font-family: var(--u
 
 /* Controls: one scrolling column, or two side by side (each scrolling on its own) once the rack
    itself is wide enough. A container query, so it follows the room the rack actually has. */
-.rack { grid-area: rack; min-width: 0; min-height: 0; container-type: inline-size; }
+.rack { grid-area: rack; min-width: 0; min-height: 0; container-type: inline-size; display: flex; flex-direction: column; gap: 12px; }
+.rack .rack-cols { flex: 1 1 auto; min-height: 0; }
+/* The save panel keeps its natural height up to a third of the column, then scrolls (the saved
+   list can grow); nothing in it shrinks, since a shrunk status line spilled over the heading. */
+.rack .files { flex: 0 1 auto; max-height: 34%; }
+.files > * { flex-shrink: 0; }
 .rack-cols {
   height: 100%; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px;
   overflow-y: auto; align-content: start;
@@ -87,12 +92,14 @@ body { margin: 0; background: var(--ink); color: var(--fg); font-family: var(--u
   .col { min-height: 0; overflow-y: auto; }
 }
 
-/* Dock along the bottom: the sequence (toolbar + filmstrip) on the left, and everything about saving
-   (exports, the sequence's name, files, the saved list) in one panel on the right. Each part scrolls
-   rather than clips if it runs out of room, so nothing can disappear silently. */
+/* Dock along the bottom: the sequence (toolbar + filmstrip) across the full width. Everything
+   about saving (exports, the sequence's name, files, the saved list) sits under the controls in
+   the rack (Scott: the dock's saving panel got crowded once the loop clip's status joined it, and
+   the rack had room below the controls). Each part scrolls rather than clips if it runs out of
+   room, so nothing can disappear silently. */
 .dock {
   grid-area: dock; min-width: 0; min-height: 0;
-  display: grid; grid-template-columns: minmax(0, 1fr) 440px; gap: 12px;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px;
 }
 .seq-area, .files {
   min-width: 0; min-height: 0; overflow-y: auto;
@@ -133,7 +140,7 @@ body { margin: 0; background: var(--ink); color: var(--fg); font-family: var(--u
 .pos output { font: 11.5px var(--mono); font-variant-numeric: tabular-nums; min-width: 48px; text-align: right; }
 .savebar .btn, .files .lib-save .btn { padding: 6px 9px; }
 /* Fixed width: its "One sequence loop (18.0 s)" option would otherwise widen the row until it wraps. */
-.savebar select { width: 104px; }
+.savebar select { width: 150px; }
 .savebar { gap: 6px 8px; }
 .savebar select { background: var(--panel-2); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 6px; font: 13px var(--ui); }
 .savebar .status { flex: 1 1 160px; min-width: 0; }
@@ -287,6 +294,7 @@ textarea {
   @supports (height: 100dvh) { .stage { max-height: 50dvh; } }
   .dock { grid-template-columns: minmax(0, 1fr); }
   .rack-cols, .col, .seq-area, .files { overflow: visible; height: auto; }
+  .rack .files { max-height: none; }
   .hint { display: none; }
 }
 /* A phone on its side: pinned at the top, the canvas would have shrunk to a small square with the
@@ -348,35 +356,6 @@ textarea {
     <div class="status" id="seqStatus" role="status"></div>
     </div>
 
-    <div class="files" aria-label="Saving and files">
-      <div class="savebar">
-        <span class="dock-title">Save</span>
-        <button class="btn" id="savePng" type="button" disabled>PNG</button>
-        <button class="btn" id="saveSvg" type="button" disabled title="The current frame as vector paths, without glow or trails, for Illustrator or After Effects.">SVG</button>
-        <button class="btn" id="saveLook" type="button" disabled title="Saves just the look on screen as a .ringloom.json. Your sequence isn't changed.">Look file</button>
-        <select id="recLen" aria-label="Clip length">
-          <option value="4">4 s clip</option>
-          <option value="8" selected>8 s clip</option>
-          <option value="16">16 s clip</option>
-          <option value="look">One loop of this look</option>
-          <option value="seq">One sequence loop</option>
-        </select>
-        <button class="btn rec" id="saveVid" type="button" disabled>Record</button>
-        <button class="btn" id="tuneLoop" type="button" hidden title="Nudge Drift, Spin, Cycle, Lobe speed or a View motion to the nearest values whose cycles line up, so one loop of this look repeats exactly.">Tune to loop</button>
-      </div>
-      <div class="lib-save">
-        <label for="seqName" class="dock-title">Sequence</label>
-        <input id="seqName" type="text" maxlength="60" autocomplete="off" placeholder="Name it to save">
-        <button class="btn primary" id="libSave" type="button" title="Keep this sequence in this browser's list below.">Save</button>
-        <button class="btn" id="fileSave" type="button" disabled title="Save the sequence as a .ringloom.json that opens on any computer, or in Houdini.">To file</button>
-        <button class="btn" id="fileOpen" type="button" title="Open a sequence or look file.">Open…</button>
-        <input id="fileIn" type="file" accept=".json,application/json" hidden>
-      </div>
-      <div class="status" id="status" role="status">Checking save access…</div>
-      <div class="status" id="libStatus" role="status"></div>
-      <h3 class="dock-title" title="This list lives in this browser only. Use To file for a copy that opens on any computer, or to send to someone.">Saved in this browser<span class="sub" id="libSub"></span></h3>
-      <ul class="lib" id="libList" aria-label="Sequences saved in this browser"></ul>
-    </div>
   </section>
 
   <aside class="rack" aria-label="Controls">
@@ -417,6 +396,35 @@ textarea {
           </div>
         </details>
       </div>
+    </div>
+    <div class="files" aria-label="Saving and files">
+      <div class="savebar">
+        <span class="dock-title">Save</span>
+        <button class="btn" id="savePng" type="button" disabled>PNG</button>
+        <button class="btn" id="saveSvg" type="button" disabled title="The current frame as vector paths, without glow or trails, for Illustrator or After Effects.">SVG</button>
+        <button class="btn" id="saveLook" type="button" disabled title="Saves just the look on screen as a .ringloom.json. Your sequence isn't changed.">Look file</button>
+        <select id="recLen" aria-label="Clip length">
+          <option value="4">4 s clip</option>
+          <option value="8" selected>8 s clip</option>
+          <option value="16">16 s clip</option>
+          <option value="look">One loop of this look</option>
+          <option value="seq">One sequence loop</option>
+        </select>
+        <button class="btn rec" id="saveVid" type="button" disabled>Record</button>
+        <button class="btn" id="tuneLoop" type="button" hidden title="Nudge Drift, Spin, Cycle, Lobe speed or a View motion to the nearest values whose cycles line up, so one loop of this look repeats exactly.">Tune to loop</button>
+      </div>
+      <div class="lib-save">
+        <label for="seqName" class="dock-title">Sequence</label>
+        <input id="seqName" type="text" maxlength="60" autocomplete="off" placeholder="Name it to save">
+        <button class="btn primary" id="libSave" type="button" title="Keep this sequence in this browser's list below.">Save</button>
+        <button class="btn" id="fileSave" type="button" disabled title="Save the sequence as a .ringloom.json that opens on any computer, or in Houdini.">To file</button>
+        <button class="btn" id="fileOpen" type="button" title="Open a sequence or look file.">Open…</button>
+        <input id="fileIn" type="file" accept=".json,application/json" hidden>
+      </div>
+      <div class="status" id="status" role="status">Checking save access…</div>
+      <div class="status" id="libStatus" role="status"></div>
+      <h3 class="dock-title" title="This list lives in this browser only. Use To file for a copy that opens on any computer, or to send to someone.">Saved in this browser<span class="sub" id="libSub"></span></h3>
+      <ul class="lib" id="libList" aria-label="Sequences saved in this browser"></ul>
     </div>
   </aside>
 </div>

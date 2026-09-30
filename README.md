@@ -86,8 +86,10 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
   kaleidoscope and light blend apply as for lines. A blend between a lines look and a dots look
   fades one into the other. SVG export writes the dots; the Houdini node makes points with
   `pscale` (and no polylines) for a look drawn as dots, switching halfway through such a blend.
+- **Layout:** the canvas on the left, the controls on the right with the saving panel (exports,
+  the sequence's name, files, the saved list) beneath them, and the sequence across the bottom.
 - **Phones and narrow windows** (860px and under): the canvas is pinned to the top of the screen
-  (half its height at most) and the controls scroll beneath it, with the sequence and saving last,
+  (half its height at most) and the controls scroll beneath it, with saving and the sequence last,
   so the picture stays in view while you change things. On a phone held sideways the canvas is
   pinned on the left instead, the controls scrolling on the right.
 - **Favourites and History** are tabs beside the Sequence. **★ Add current look** (or **F**) keeps
