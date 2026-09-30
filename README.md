@@ -57,6 +57,9 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
   where full-circle copies land on each other (at 2, and half of them at 4 and 6). **Mirror
   copies** adds a left-right reflected twin to each copy, a true kaleidoscope; in a blend that
   turns it on or off the twins turn over like a card.
+- **Perspective** 0 is orthographic: depth doesn't change size, so near and far rings match. It
+  eases into perspective up to 0.3; from there up it is the same as it always was. Blends mix
+  perspective strength, so it grows evenly through a blend.
 - **Squareness** (circle base) reads 0 for a perfect circle, up to 1 squarer, down to -1 pinched
   toward a diamond and star. Files still store the underlying exponent (2 = circle).
 - **Loop colours:** the colours go round the rings and join up, through the palette and back
@@ -98,8 +101,12 @@ plus `glow`, `trails`, `additive`, `bg` and a `label` naming the look or blend o
 a render setup.
 
 The view is baked into the geometry (the page's yaw, pitch, roll, rotation and spin), and the camera sits
-on +Z at the page's perspective distance with a focal that reproduces its zoom. You can still
-orbit freely in the viewport. Blends work exactly as on the page (both blend in 3D), so the
+on +Z at the page's perspective distance with a focal that reproduces its zoom. At Perspective 0
+the page is orthographic and the camera switches to orthographic too (`cam_ortho`, with
+`cam_orthowidth` matching the zoom); it also stays orthographic for the faint perspective a blend
+passes through on its way out of 0 (camera past 1000 units, under 0.1% of the size). Cameras made
+before this need the new expressions: `update_hip_code.py` adds them to any camera already reading
+`cam_distance`. You can still orbit freely in the viewport. Blends work exactly as on the page (both blend in 3D), so the
 importer matches the page on every blend, including view changes, turns, stagger and swirl;
 perspective and zoom blend on the camera.
 

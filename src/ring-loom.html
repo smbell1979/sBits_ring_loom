@@ -946,13 +946,25 @@ function look3d(p, time, M) {
   return {
     rings, time,
     view: { pitch: p.pitch, yaw: p.yaw, roll: p.roll, rotate: p.rotate, spin: p.spin },
-    cam: { D: 2.4 + (1 - p.persp) * 40, zoom: p.zoom },
+    cam: { k: perspK(p.persp), zoom: p.zoom },
     look: { width: p.width, alpha: p.alphaL, glow: p.glow, trails: p.trails, additive: p.additive,
             bg: hexToRgb(p.bg), copies: kaleidoCopies(p) },
   };
 }
+// Perspective strength k (1 / camera distance) for the Perspective slider p. The camera used to
+// sit 2.4 + 40 (1 - p) units back, so even at 0 it was 42.4 away and depth still changed size:
+// 0.9 units in front came out ~4% bigger than 0.9 behind. From p = 0.3 up that distance is kept
+// exactly (so looks there are unchanged); below, the strength eases smoothly to exactly 0 at p = 0,
+// a true orthographic view -- in Houdini, an orthographic camera.
+function perspK(p) {
+  const x = Math.min(1, p / 0.3), s = x * x * (3 - 2 * x);
+  return s / (2.4 + (1 - p) * 40);
+}
+// Projection: f = 1 / (1 - k z), the old D / (D - z) written with k so that k = 0 is orthographic
+// (f = 1); the floor keeps points behind the camera from blowing up, as the old max(0.25, D - z).
+const perspF = (k, z) => 1 / Math.max(0.25 * k, 1 - k * z);
 function project(f3, size) {
-  const S = size * 0.44 * f3.cam.zoom, D = f3.cam.D;
+  const S = size * 0.44 * f3.cam.zoom, k = f3.cam.k;
   let angOf = null, V = null;
   const rings = f3.rings.map(r => {
     if (r.ang !== angOf) {
@@ -972,7 +984,7 @@ function project(f3, size) {
         x += (qb[3 * jb] - x) * tm; y += (qb[3 * jb + 1] - y) * tm; z += (qb[3 * jb + 2] - z) * tm;
       }
       const X = V[0] * x + V[1] * y + V[2] * z, Y = V[3] * x + V[4] * y + V[5] * z, Z = V[6] * x + V[7] * y + V[8] * z;
-      const f = D / Math.max(0.25, D - Z);
+      const f = perspF(k, Z);
       pts[2 * j] = X * f * S;
       pts[2 * j + 1] = -Y * f * S;
     }
@@ -1104,7 +1116,9 @@ function blendFrames(fa, fb, t, ringT, turns, tau0, matches) {
   }
   return {
     rings, time,
-    cam: { D: lerp(fa.cam.D, fb.cam.D, t), zoom: lerp(fa.cam.zoom, fb.cam.zoom, t) },
+    // Perspective mixes as strength (1 / distance): mixing distances, from far to near, left the
+    // perspective invisible until the very end of the blend, then arriving all at once.
+    cam: { k: lerp(fa.cam.k, fb.cam.k, t), zoom: lerp(fa.cam.zoom, fb.cam.zoom, t) },
     look: {
       width: lerp(la.width, lb.width, t), alpha: lerp(la.alpha, lb.alpha, t),
       glow: lerp(la.glow, lb.glow, t), trails: lerp(la.trails, lb.trails, t),

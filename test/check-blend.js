@@ -356,6 +356,18 @@ setTimeout(() => {
     }
   }
 
+  // ---- orthographic at Perspective 0 ----
+  {
+    // A slinky seen side-on (the screenshot case): every ring the same height at Perspective 0,
+    // however near or far; with perspective the near ones are taller.
+    const heights = persp => t.computeFrame(Object.assign(t.defaults(), { gen: "slinky", closed: true, rings: 24, pitch: 90, drift: 0, persp }), 0, size, 180)
+      .rings.map(r => { let lo = Infinity, hi = -Infinity; for (let j = 1; j < r.pts.length; j += 2) { lo = Math.min(lo, r.pts[j]); hi = Math.max(hi, r.pts[j]); } return hi - lo; });
+    const spread = h => (Math.max(...h) - Math.min(...h)) / Math.max(...h);
+    const h0 = heights(0), h5 = heights(0.5);
+    check("Perspective 0 is orthographic: near and far rings the same height", spread(h0) < 1e-9 && spread(h5) > 0.01,
+      `height spread ${(spread(h0) * 100).toFixed(6)}% at 0, ${(spread(h5) * 100).toFixed(1)}% at 0.5`);
+  }
+
   // ---- loop colours ----
   {
     // Colour step between neighbouring rings, including last -> first (the seam).

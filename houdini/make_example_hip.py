@@ -67,9 +67,8 @@ geo_obj.layoutChildren()
 
 cam = hou.node("/obj").createNode("cam", "ringloom_cam")
 det = 'detail("/obj/ringloom/OUT", "%s", 0)'
-cam.parm("tz").setExpression(det % "cam_distance")
-cam.parm("focal").setExpression(det % "cam_focal")
-cam.parm("aperture").setExpression(det % "cam_aperture")
+for parm, attrib in E.CAMERA_EXPRESSIONS:
+    cam.parm(parm).setExpression(det % attrib)
 cam.parm("resx").setExpression('ch("/obj/ringloom/ringloom_import/render_res")')
 cam.parm("resy").setExpression('ch("/obj/ringloom/ringloom_import/render_res")')
 cam.setComment("Driven by the ringloom SOP: matches the page's view, perspective and zoom.")
@@ -109,13 +108,15 @@ for f in frames:
     # Camera check: project the SOP's points with the camera's own parameter values and compare
     # with the page's screen projection (engine.project), in pixels at the render resolution.
     res = sop.evalParm("render_res")
-    D, F, A = cam.evalParm("tz"), cam.evalParm("focal"), cam.evalParm("aperture")
     first = P[: frame["pre"].shape[0] * frame["pre"].shape[1]]  # first kaleidoscope copy = unrotated rings
-    xs = first[:, 0] * (F / A) * res / (D - first[:, 2])
-    ys = -first[:, 1] * (F / A) * res / (D - first[:, 2])
+    got = E.camera_projection(first, cam.evalParm("tz"), cam.evalParm("focal"), cam.evalParm("aperture"),
+                              cam.evalParm("projection") == 1, cam.evalParm("orthowidth"), res)
     page = E.project(frame, res).reshape(-1, 2)
-    cam_err = float(np.max(np.abs(np.stack([xs, ys], axis=1) - page)))
-    if cam_err > 1e-3:
+    cam_err = float(np.max(np.abs(got - page)))
+    # An orthographic camera for a sliver of perspective (0 < k < ORTHO_K, mid-blend) is off by that
+    # sliver: under 0.1% of the size.
+    tol = 1e-3 if (cam.evalParm("projection") != 1 or frame["view"]["k"] == 0) else 1e-3 * res
+    if cam_err > tol:
         fails.append("frame %d: camera view off from the page by %.4f px" % (f, cam_err))
     print("frame %4d  %-40s rings %4d  geo err %.1e  camera err %.1e px"
           % (f, label[:40], geo.intrinsicValue("primitivecount"), geo_err, cam_err))

@@ -448,6 +448,34 @@ def ring_world(p, k, N, M, time, mats):
     return np.stack([x, y, z], axis=1)
 
 
+# Camera parameters driven by the SOP's detail attributes (sop_glue), for make_example_hip.py and
+# update_hip_code.py: (camera parm, detail attribute).
+CAMERA_EXPRESSIONS = [("tz", "cam_distance"), ("focal", "cam_focal"), ("aperture", "cam_aperture"),
+                      ("projection", "cam_ortho"), ("orthowidth", "cam_orthowidth"), ("far", "cam_far")]
+
+
+def camera_projection(P, tz, focal, aperture, ortho, orthowidth, res):
+    """Where a Houdini camera on +Z (these parameter values) puts world points P, in pixels about
+    the centre of a square res x res frame, y down -- to compare with project(frame, res)."""
+    if ortho:
+        s = res / orthowidth
+        return np.stack([P[:, 0] * s, -P[:, 1] * s], axis=1)
+    s = (focal / aperture) * res / (tz - P[:, 2])
+    return np.stack([P[:, 0] * s, -P[:, 1] * s], axis=1)
+
+
+def persp_k(p):
+    """Perspective strength, 1 / camera distance (page perspK): the old distance 2.4 + 40 (1 - p)
+    from p = 0.3 up, easing to exactly 0 -- orthographic -- at p = 0."""
+    x = min(1.0, p / 0.3)
+    return x * x * (3 - 2 * x) / (2.4 + (1 - p) * 40)
+
+
+def persp_f(k, z):
+    """Screen scale for depth z at strength k: 1 / (1 - k z), floored (page perspF); 1 when k = 0."""
+    return 1 / np.maximum(0.25 * k, 1 - k * z)
+
+
 def kaleido_copies(p):
     """Page kaleidoCopies: (angle, weight, sx) per copy, over a full or half circle, each followed
     by its left-right reflected twin (sx -1) with Mirror copies."""
@@ -485,7 +513,7 @@ def look3d(p, time, M=None):
         # rotate and spin are kept apart (with time) for blends; rot is the angle actually used.
         "view": {"pitch": p["pitch"], "yaw": p["yaw"], "roll": p["roll"], "rot": p["rotate"] + p["spin"] * time,
                  "rotate": p["rotate"], "spin": p["spin"], "time": time,
-                 "D": 2.4 + (1 - p["persp"]) * 40, "zoom": p["zoom"]},
+                 "k": persp_k(p["persp"]), "zoom": p["zoom"]},
         "copies": kaleido_copies(p),
         "look": {"width": p["width"], "alpha": p["alphaL"], "glow": p["glow"], "trails": p["trails"],
                  "additive": bool(p["additive"]), "bg": [float(v) for v in hex_to_rgb(p["bg"])]},
@@ -609,7 +637,8 @@ def blend3d(A, B, u, turns=0, stagger=0.0, swirl=0.0, ease="linear", tau0=None, 
             "yaw": _shortest(va["yaw"], vb["yaw"], te),
             "roll": _shortest(va["roll"], vb["roll"], te) + 360 * turns * te,
             "rot": rot_between(va, vb, va["time"], va["time"] if tau0 is None else tau0, te),
-            "D": lerp(va["D"], vb["D"], t), "zoom": lerp(va["zoom"], vb["zoom"], t)}
+            # Perspective mixes as strength, not camera distance (page blendFrames).
+            "k": lerp(va["k"], vb["k"], t), "zoom": lerp(va["zoom"], vb["zoom"], t)}
     la, lb = A["look"], B["look"]
     look = {k: lerp(la[k], lb[k], t) for k in ("width", "alpha", "glow", "trails")}
     look["additive"] = la["additive"] if t < 0.5 else lb["additive"]
@@ -641,7 +670,7 @@ def apply_view(frame):
     amp = frame.get("swirl")
     if amp is None:
         return P
-    f = v["D"] / np.maximum(0.25, v["D"] - P[..., 2])
+    f = persp_f(v["k"], P[..., 2])
     rn = np.hypot(P[..., 0], P[..., 1]) * f * v["zoom"]
     deg = amp[:, None] / (1 + rn * rn)
     c, s = np.cos(deg * D2R), np.sin(deg * D2R)
@@ -656,7 +685,7 @@ def project(frame, size):
     P = apply_view(frame)
     v = frame["view"]
     S = size * 0.44 * v["zoom"]
-    f = v["D"] / np.maximum(0.25, v["D"] - P[..., 2])
+    f = persp_f(v["k"], P[..., 2])
     return np.stack([P[..., 0] * f * S, -P[..., 1] * f * S], axis=-1)
 
 

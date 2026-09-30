@@ -60,12 +60,23 @@ geo.setPrimFloatAttribValues("Cd", [float(v) for r in rings for v in r[1]])
 geo.setPrimFloatAttribValues("Alpha", [float(r[2]) for r in rings])
 geo.setPrimFloatAttribValues("width", [float(width)] * len(rings))
 
-# Camera settings for the page's view: a camera on +Z at distance D sees the rings the way the
-# page projects them; focal is chosen so the frame shows what the page's zoom shows.
+# Camera settings for the page's view. Perspective strength k is 1 / the camera's distance: a
+# camera on +Z at distance 1/k sees the rings the way the page projects them, with the focal
+# chosen so the frame shows what the page's zoom shows. At k = 0 (Perspective 0) the page is
+# orthographic, and so is the camera: cam_ortho switches it, and its ortho width is the page's
+# frame, 1 / (0.44 zoom). Below ORTHO_K (camera past 1000 units, which a blend from an
+# orthographic look passes through) the camera stays orthographic too; the page's remaining
+# perspective there is under 0.1% of the size.
+ORTHO_K = 1e-3
 aperture = 41.4214
+ortho = view["k"] < ORTHO_K
+D = 10.0 if ortho else 1 / view["k"]  # an orthographic camera just needs to sit in front of the rings
 details = {
-    "cam_distance": view["D"] * scale,
-    "cam_focal": view["D"] * aperture * 0.44 * view["zoom"],
+    "cam_ortho": 1.0 if ortho else 0.0,
+    "cam_orthowidth": scale / (0.44 * view["zoom"]),
+    "cam_distance": D * scale,
+    "cam_far": max(10000.0, 4 * D * scale),
+    "cam_focal": D * aperture * 0.44 * view["zoom"],
     "cam_aperture": aperture,
     "glow": frame["look"]["glow"],
     "trails": frame["look"]["trails"],
