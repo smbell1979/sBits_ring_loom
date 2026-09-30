@@ -12,7 +12,8 @@ const exposed = ["computeFrame", "blendFrames", "pairUp", "morphFrame", "rollFra
   "readLibrary", "writeLibrary", "libraryUpsert", "parseSequenceFile", "sequenceFileData", "cardsForSave", "makeCard", "seqDirty", "seqKey",
   "lookFileData", "readLookFile", "params", "fmt", "readTyped", "BY_ID", "rgbToOklab", "oklabToRgb", "oklabToLinear", "mixColour", "hexToRgb",
   "historyPush", "favouritesAdd", "shelfEntry", "parseFavouritesFile", "applyParams", "hist", "randomize",
-  "ringPre", "superR", "superShape", "mutate", "loopOf", "loopParts", "mulberry32", "tuneToLoop"];
+  "ringPre", "superR", "superShape", "mutate", "loopOf", "loopParts", "mulberry32", "tuneToLoop",
+  "favs", "sync", "syncNow", "readTombs", "readLibrary", "writeLibrary", "writeList", "FAV_STORE", "shelfEntry", "favouritesAdd", "applyMerged"];
 js = js.replace(hook, hook + "\nglobalThis.__t = {" + exposed.map(n => `get ${n}() { return ${n}; }`).join(", ") + "};");
 
 // In-memory localStorage whose behaviour the library tests can switch: normal, throwing
@@ -44,6 +45,17 @@ const g = {
   performance: { now: () => 0 }, localStorage: storage,
   navigator: {}, addEventListener() {}, setTimeout, clearTimeout, setInterval, clearInterval, console,
 };
+// Sync's server, in memory: the real merge from api/_merge.js behind a fetch stub.
+const { mergeLibraries } = require("../api/_merge.js");
+const fakeServer = { library: { favourites: [], sequences: [] }, calls: 0, fail: false };
+g.fetch = async (url, opts) => {
+  fakeServer.calls++;
+  if (fakeServer.fail) return { ok: false, status: 503, json: async () => ({ error: "server down" }) };
+  const body = JSON.parse(opts.body);
+  fakeServer.library = mergeLibraries(fakeServer.library, body);
+  return { ok: true, status: 200, json: async () => JSON.parse(JSON.stringify(fakeServer.library)) };
+};
+g.crypto = { getRandomValues: a => { for (let i = 0; i < a.length; i++) a[i] = Math.floor(Math.random() * 2 ** 32); return a; } };
 g.window = g;
 new Function(...Object.keys(g), js)(...Object.values(g));
 
@@ -57,7 +69,7 @@ function curveGap(p, q) {
 let failed = false;
 const check = (name, ok, detail) => { console.log(`${ok ? "ok  " : "FAIL"} ${name}${detail ? "  (" + detail + ")" : ""}`); if (!ok) failed = true; };
 
-setTimeout(() => {
+setTimeout(async () => {
   const t = globalThis.__t;
   check("page script loads and draws", frames >= 3, `${Math.min(frames, 3)} frames`);
   const look = name => Object.assign(t.defaults(), t.PRESETS[name]);
@@ -987,6 +999,40 @@ setTimeout(() => {
       for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0;
     }
     check("seeds on an original generator and base come out as before", h === 141746709 && n === 151, `${n} seeds, digest ${h}; ${added} now on a new generator, ${sup} now Superformula`);
+  }
+
+  // Sync: a favourite added here is stamped with a time and pushed; one deleted leaves a
+  // tombstone; a favourite and a sequence the "other device" put on the server arrive here after
+  // a sync, and one it deleted goes; a failed sync changes nothing here and reports.
+  {
+    storageMode = "ok"; mem.clear();
+    t.sync.code = "amber-fox-tide-4821";
+    t.favs.length = 0;
+    const mine = t.shelfEntry("Mine", t.randomize(5));
+    t.favs.push(mine); t.writeList(t.FAV_STORE, t.favs);
+    check("a favourite is stamped with its change time on save", Number.isFinite(mine.u) && typeof mine.uid === "string", `u ${mine.u}, uid ${mine.uid}`);
+    const gone = t.shelfEntry("Gone", t.randomize(6));
+    t.favs.push(gone); t.writeList(t.FAV_STORE, t.favs);
+    t.favs.splice(t.favs.indexOf(gone), 1); t.writeList(t.FAV_STORE, t.favs);
+    check("deleting a favourite leaves a tombstone for the other devices", Number.isFinite(t.readTombs().favourites[gone.uid]), "");
+    // The other device's library is already on the server: a favourite, a sequence, and a
+    // deletion of a favourite this device also has.
+    const theirs = t.shelfEntry("Theirs", t.randomize(7)), shared = t.shelfEntry("Shared", t.randomize(8));
+    t.favs.push(shared); t.writeList(t.FAV_STORE, t.favs);
+    fakeServer.library = mergeLibraries(fakeServer.library, {
+      favourites: [{ id: theirs.uid, u: Date.now(), name: theirs.name, params: theirs.params, at: theirs.at }, { id: shared.uid, u: Date.now() + 1000, gone: true }],
+      sequences: [{ id: "night drive", u: Date.now(), name: "Night drive", savedAt: new Date().toISOString(), sequence: t.cardsForSave() }] });
+    const msg = await t.syncNow();
+    const names = t.favs.map(f => f.name).sort().join(",");
+    check("after a sync, the other device's favourite is here, its deletion took effect, mine stayed", msg === "Synced." && names === "Mine,Theirs", `${msg}; favourites: ${names}`);
+    check("...and its saved sequence is in this browser's list", (t.readLibrary() || []).some(e => e.name === "Night drive"), "");
+    check("...and the server holds this device's items and tombstone", fakeServer.library.favourites.some(f => f.id === mine.uid) && fakeServer.library.favourites.some(f => f.id === gone.uid && f.gone), "");
+    const before = JSON.stringify(t.favs.map(f => f.name));
+    fakeServer.fail = true;
+    const failMsg = await t.syncNow();
+    fakeServer.fail = false;
+    check("a failed sync changes nothing here and says so", /Sync failed: server down/.test(failMsg) && JSON.stringify(t.favs.map(f => f.name)) === before, failMsg);
+    t.sync.code = null;
   }
 
   t.seq.savedKey = t.seqKey();

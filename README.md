@@ -162,6 +162,16 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
   ordinary way, which can repeat or skip a frame at the seam (Chrome kept 351, 357, 359 or 361
   of 360 frames on different runs).
 - **Settings code** copies the exact look as JSON so it can be pasted back later.
+- **Sync** (in the saving panel) shares favourites and saved sequences between devices. **New
+  code** makes a sync code (three words and a number; the code is hashed and the hash names one
+  private Vercel Blob holding the library as JSON); **Enter code…** on another device joins it.
+  Each device keeps its own copy in local storage and works offline; after any change and on
+  every load it PUTs its copy to `api/library.js`, which merges it with the stored one item by
+  item (`api/_merge.js`: the later change wins, deletions are tombstones kept 30 days, ties break
+  the same way on every device), writes it back with an ETag condition (retried if another device
+  wrote meanwhile) and returns the merge, which the device adopts. No accounts: anyone with the
+  code has the library. Needs `BLOB_READ_WRITE_TOKEN` on the deployment (a Blob store connected to
+  the project); without it the function answers 503 and the page says sync isn't set up.
 - **?** (the button by Randomize, or the key) opens the notes: how to make a look loop and loop
   shorter (each moving part's period and tidy values, with the current look's parts shown live),
   clip formats and files, the generators, trails, glow and dots, and the keys. Esc closes.

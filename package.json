@@ -1,0 +1,12 @@
+{
+  "name": "ring-loom",
+  "private": true,
+  "description": "Ring Loom: the page (src, built into public by build.js) and its sync function (api).",
+  "scripts": {
+    "build": "node build.js src/ring-loom.html",
+    "test": "node test/check-blend.js src/ring-loom.html && node test/check-sync.js"
+  },
+  "dependencies": {
+    "@vercel/blob": "^2.8.0"
+  }
+}

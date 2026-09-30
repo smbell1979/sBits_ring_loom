@@ -82,6 +82,8 @@ body { margin: 0; background: var(--ink); color: var(--fg); font-family: var(--u
 .rack .rack-cols { flex: 0 1 auto; height: auto; min-height: 45%; }
 .rack .files { flex: 1 0 auto; min-height: 0; max-height: 45%; }
 .files > * { flex-shrink: 0; }
+.sync-code { font: 12.5px var(--mono); color: var(--accent); background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 3px 7px; }
+.sync-note { font-size: 12px; color: var(--muted); }
 .files .lib { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
 .rack-cols {
   height: 100%; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px;
@@ -454,7 +456,8 @@ textarea {
       </div>
       <div class="status" id="status" role="status">Checking save access…</div>
       <div class="status" id="libStatus" role="status"></div>
-      <h3 class="dock-title" title="This list lives in this browser only. Use To file for a copy that opens on any computer, or to send to someone.">Saved in this browser<span class="sub" id="libSub"></span></h3>
+      <div class="savebar" id="syncRow" aria-label="Sync between devices"></div>
+      <h3 class="dock-title" title="This list lives in this browser, and on every device sharing its sync code. Use To file for a copy that opens on any computer, or to send to someone.">Saved in this browser<span class="sub" id="libSub"></span></h3>
       <ul class="lib" id="libList" aria-label="Sequences saved in this browser"></ul>
     </div>
   </aside>
@@ -462,7 +465,7 @@ textarea {
 
 <dialog class="help" id="help" aria-label="Help">
   <div class="help-head"><h2>Ring Loom notes</h2><button class="btn" id="helpClose" type="button">Close<kbd>esc</kbd></button></div>
-  <nav class="help-nav"><a href="#help-loop">Looping</a><a href="#help-clips">Clips &amp; files</a><a href="#help-gens">Generators</a><a href="#help-look">Trails, glow, dots</a><a href="#help-keys">Keys</a></nav>
+  <nav class="help-nav"><a href="#help-loop">Looping</a><a href="#help-clips">Clips, files &amp; sync</a><a href="#help-gens">Generators</a><a href="#help-look">Trails, glow, dots</a><a href="#help-keys">Keys</a></nav>
   <div class="help-body">
     <h3 id="help-loop">Making a look loop, and loop shorter</h3>
     <p class="now" id="helpNow"></p>
@@ -486,12 +489,13 @@ textarea {
     <p><b>A recipe for a 12 s loop:</b> turn off what you don't need (Cycle 0, Lobe speed 0, View motions Off); set what's left to the same number (View motion 12 s, Spin 30, Cycle 30 with Loop colours on, Pendulum Period 12); then <b>Tune to loop</b> nudges the rest, Drift included, by a few percent to fit. <b>Time speed</b> divides everything: doubling it halves the loop, motion and all.</p>
     <p>Some pictures repeat sooner than their parts: kaleidoscope copies straight on, a spirograph's Points-fold symmetry, a harmonograph's phase symmetry, a Möbius strip's half turn on a symmetric shape. The calculator folds those in. Straight on, Spin and a turning Roll are one rotation and add (or cancel).</p>
 
-    <h3 id="help-clips">Clips &amp; files</h3>
+    <h3 id="help-clips">Clips, files &amp; sync</h3>
     <ul>
       <li><b>Clips</b> are rendered frame by frame at a constant 60 fps with an exact frame count, not filmed, so they needn't play in real time. <b>MP4 · H.264</b> is a plain file that Nuke, Resolve, Premiere and phones read. <b>WebM · VP9</b> is smaller. <b>MOV · lossless</b> is a QuickTime with PNG-compressed RGB frames: no chroma artefacts (H.264 subsamples colour, which frays thin coloured lines), and <code>ffmpeg -i in.mov -c:v prores_ks -profile:v 3 -pix_fmt yuv422p10le out.mov</code> makes ProRes 422 HQ from it with nothing lost. <b>PNG frames · zip</b> is a numbered, lossless sequence (background painted in) for compositing. A 2-minute MP4 is about 250 MB and is held in memory until saved; PNG frames run to gigabytes, so keep those short.</li>
       <li><b>One loop of this look</b> is seamless: frame N is frame 0 again, no frame repeated or dropped; with Trails on, a silent loop runs first so the seam carries the same trails. <b>One sequence loop</b> is exact in length, but its seam only matches if the looks' own motions happen to line up over the sequence: each look's clock runs on through the whole sequence.</li>
       <li><b>Look file</b> saves the look on screen as .ringloom.json; <b>To file</b> the whole sequence. Both open here, or in Houdini through the Ring Loom SOP. <b>Save</b> keeps a sequence in this browser only.</li>
       <li><b>SVG</b> is the current frame as vector paths (or dots), without glow or trails, for Illustrator or After Effects. <b>PNG</b> is the frame as shown.</li>
+      <li><b>Sync</b> shares favourites and saved sequences between your devices: <b>New code</b> makes a sync code (three words and a number) for this library; <b>Enter code…</b> on another device joins it, and both libraries become one. Each device keeps its own copy and works offline; after any change, and on every load, it syncs. Two devices editing apart never lose each other's changes: per item the later change wins, and deletions carry across for 30 days. Anyone with the code has the library, so treat it like a password. History stays on its device.</li>
     </ul>
 
     <h3 id="help-gens">Generators</h3>
@@ -2575,6 +2579,7 @@ function readLibrary() {
 }
 function writeLibrary(list) {
   try {
+    stampChanges("sequences", readLibrary(), list, seqId, seqBody);
     const s = JSON.stringify(list);
     localStorage.setItem(LIB_STORE, s);
     return localStorage.getItem(LIB_STORE) === s;  // a write can "succeed" and keep nothing
@@ -2792,13 +2797,14 @@ function readList(key) {  // null: the browser refused storage
 }
 function writeList(key, list) {
   try {
-    const s = JSON.stringify(list.map(({ name, params: p, at }) => ({ name, params: p, at })));
+    if (key === FAV_STORE) stampChanges("favourites", readList(key), list, e => e.uid, favBody);
+    const s = JSON.stringify(list.map(({ name, params: p, at, uid, u }) => key === FAV_STORE ? { name, params: p, at, uid, u } : { name, params: p, at }));
     localStorage.setItem(key, s);
     return localStorage.getItem(key) === s;  // a write can "succeed" and keep nothing
   } catch { return false; }
 }
 const sameLook = (a, b) => JSON.stringify(cleanParams(a)) === JSON.stringify(cleanParams(b));
-const shelfEntry = (name, p, at) => ({ id: shelfNextId++, name: (typeof name === "string" && name.trim() ? name.trim() : "Look").slice(0, 40), params: cleanParams(p), at: at || new Date().toISOString() });
+const shelfEntry = (name, p, at, uid, u) => ({ id: shelfNextId++, uid: typeof uid === "string" && uid ? uid : newUid(), u: Number.isFinite(u) ? u : undefined, name: (typeof name === "string" && name.trim() ? name.trim() : "Look").slice(0, 40), params: cleanParams(p), at: at || new Date().toISOString() });
 // Newest first; the same look as the newest isn't added twice in a row; the oldest past cap goes.
 function historyPush(list, entry, cap = HIST_MAX) {
   if (list.length && sameLook(list[0].params, entry.params)) return list;
@@ -2949,14 +2955,141 @@ favIn.addEventListener("change", async () => {
 });
 function initShelves() {
   const f = readList(FAV_STORE), h = readList(HIST_STORE);
-  favs = (f || []).map(e => shelfEntry(e.name, e.params, e.at));
+  favs = (f || []).map(e => shelfEntry(e.name, e.params, e.at, e.uid, e.u));
   hist = (h || []).map(e => shelfEntry(e.name, e.params, e.at));
   renderShelf("fav"); renderShelf("hist");
   if (f === null) seqStatusEl.textContent = "This browser isn't letting the page store data, so favourites and history last only for this visit. Favourites can still be saved to a file.";
   let tab = "seq";
   try { tab = localStorage.getItem("ring-loom-tab") || "seq"; } catch { /* default */ }
   showTab(["seq", "fav", "hist"].includes(tab) ? tab : "seq");
+  initSync();
 }
+// ---------- sync between devices ----------
+// A sync code (three words and a number, made here or typed in from another device) names one
+// library on the server (api/library.js, a private blob under the code's hash). Local storage
+// stays each device's own copy and the page works without the server; after any change to the
+// favourites or the saved sequences, and on every load, the copy is pushed and the server's
+// merge comes back: per item, the later change wins, deletions are kept as tombstones for 30
+// days (api/_merge.js), so two devices editing apart never lose each other's changes. History
+// stays on its device. Every favourite has a uid and every sequence its name (lower-cased) as
+// its id; u is when it last changed (ms), stamped by stampChanges as it is written.
+const SYNC_STORE = "ring-loom-sync-v1", TOMB_STORE = "ring-loom-sync-tombstones-v1";
+const SYNC_WORDS = ["amber", "arc", "ash", "atlas", "aurora", "bell", "birch", "blue", "bolt", "brass", "cedar", "chalk", "cinder", "cloud", "cobalt", "comet", "coral", "crane", "dawn", "delta", "drift", "dune", "ember", "fern", "flint", "fox", "frost", "gale", "glass", "gold", "harbor", "hazel", "heron", "ion", "iris", "ivory", "jade", "juniper", "kelp", "kite", "lark", "lava", "lilac", "lotus", "lunar", "maple", "marble", "mesa", "mint", "moss", "nectar", "north", "oak", "ochre", "onyx", "opal", "orbit", "otter", "pearl", "pine", "plum", "prism", "quartz", "quill", "raven", "reed", "river", "robin", "rose", "ruby", "sage", "sand", "sky", "slate", "snow", "solar", "spark", "spruce", "star", "storm", "swift", "tide", "topaz", "trout", "tulip", "umber", "vale", "velvet", "violet", "wave", "willow", "wren", "zinc"];
+const SYNC_CODE = /^[a-z]+-[a-z]+-[a-z]+-\d{4}$/;
+let sync = { code: null, last: null, busy: false, timer: null, applying: false, error: null };
+function readSync() { try { const v = JSON.parse(localStorage.getItem(SYNC_STORE) || "null"); if (v && SYNC_CODE.test(v.code || "")) { sync.code = v.code; sync.last = v.last || null; } } catch { /* none */ } }
+function writeSync() { try { if (sync.code) localStorage.setItem(SYNC_STORE, JSON.stringify({ code: sync.code, last: sync.last })); else localStorage.removeItem(SYNC_STORE); } catch { /* the page still syncs this visit */ } }
+function newSyncCode() {
+  const r = new Uint32Array(4); crypto.getRandomValues(r);
+  const w = i => SYNC_WORDS[r[i] % SYNC_WORDS.length];
+  return `${w(0)}-${w(1)}-${w(2)}-${String(1000 + r[3] % 9000)}`;
+}
+const newUid = () => Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+function readTombs() { try { const v = JSON.parse(localStorage.getItem(TOMB_STORE) || "{}"); return { favourites: v.favourites || {}, sequences: v.sequences || {} }; } catch { return { favourites: {}, sequences: {} }; } }
+function writeTombs(t) { try { localStorage.setItem(TOMB_STORE, JSON.stringify(t)); } catch { /* lost with storage */ } }
+// Stamps u on entries of `next` that are new or changed since `prev` (by id; the body compared
+// without u), records ids that vanished as tombstones, and asks for a push -- unless the change
+// is the server's own merge being applied (sync.applying), which is already stamped.
+function stampChanges(kind, prev, next, idOf, bodyOf) {
+  if (sync.applying) return;
+  const was = new Map((prev || []).map(e => [idOf(e), e]));
+  const now = Date.now();
+  for (const e of next) {
+    const p = was.get(idOf(e));
+    if (!p || bodyOf(p) !== bodyOf(e)) e.u = now; else if (!Number.isFinite(e.u)) e.u = Number.isFinite(p.u) ? p.u : now;
+    was.delete(idOf(e));
+  }
+  if (was.size) { const t = readTombs(); for (const id of was.keys()) t[kind][id] = now; writeTombs(t); }
+  scheduleSync();
+}
+const favBody = e => JSON.stringify([e.name, e.params, e.at]);
+const seqBody = e => JSON.stringify([e.name, e.sequence, e.savedAt]);
+const seqId = e => e.name.toLowerCase();
+function scheduleSync() {
+  if (!sync.code) return;
+  clearTimeout(sync.timer);
+  sync.timer = setTimeout(() => syncNow(), 1200);
+}
+// Pushes this device's library and takes the merge back. Returns a message for the status line.
+async function syncNow() {
+  if (!sync.code) return null;
+  if (sync.busy) { scheduleSync(); return null; }
+  sync.busy = true; renderSyncRow();
+  try {
+    const t = readTombs();
+    const favourites = [...favs.map(e => ({ id: e.uid, u: e.u, name: e.name, params: e.params, at: e.at })), ...Object.entries(t.favourites).map(([id, u]) => ({ id, u, gone: true }))];
+    const lib = readLibrary() || [];
+    const sequences = [...lib.map(e => ({ id: seqId(e), u: e.u, name: e.name, sequence: e.sequence, savedAt: e.savedAt })), ...Object.entries(t.sequences).map(([id, u]) => ({ id, u, gone: true }))];
+    const res = await fetch("/api/library", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: sync.code, favourites, sequences }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `sync failed (${res.status})`);
+    applyMerged(data);
+    sync.last = new Date().toISOString(); sync.error = null; writeSync();
+    return "Synced.";
+  } catch (e) {
+    sync.error = e.message || String(e);
+    return `Sync failed: ${sync.error}`;
+  } finally { sync.busy = false; renderSyncRow(); }
+}
+// The server's merge becomes this device's copy: live items replace the lists (a favourite the
+// other device deleted goes, one it added appears), tombstones are kept only while the server
+// keeps them. Written with sync.applying so the writes don't stamp or push again.
+function applyMerged(data) {
+  const fav = (data.favourites || []).filter(e => !e.gone && e.params && typeof e.params === "object");
+  const seqs = (data.sequences || []).filter(e => !e.gone && typeof e.name === "string" && Array.isArray(e.sequence));
+  const t = { favourites: {}, sequences: {} };
+  for (const e of data.favourites || []) if (e.gone) t.favourites[e.id] = e.u;
+  for (const e of data.sequences || []) if (e.gone) t.sequences[e.id] = e.u;
+  sync.applying = true;
+  try {
+    const before = JSON.stringify(favs.map(favBody)), beforeLib = JSON.stringify((readLibrary() || []).map(seqBody));
+    favs = fav.sort((a, b) => String(b.at).localeCompare(String(a.at))).map(e => shelfEntry(e.name, e.params, e.at, e.id, e.u));
+    writeList(FAV_STORE, favs);
+    const list = seqs.map(e => ({ name: e.name, savedAt: e.savedAt, sequence: e.sequence.map(cleanCard).filter(Boolean), u: e.u })).filter(e => e.sequence.length);
+    writeLibrary(list);
+    writeTombs(t);
+    if (JSON.stringify(favs.map(favBody)) !== before) renderShelf("fav");
+    if (JSON.stringify(list.map(seqBody)) !== beforeLib) { renderLibrary(); seqUpdateRange(); }
+  } finally { sync.applying = false; }
+}
+function renderSyncRow() {
+  const row = document.getElementById("syncRow");
+  if (!row) return;
+  const when = sync.last ? new Date(sync.last) : null;
+  const ago = when && !isNaN(when) ? ` · last ${when.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}` : "";
+  row.innerHTML = "";
+  const title = document.createElement("span"); title.className = "dock-title"; title.textContent = "Sync";
+  row.append(title);
+  const mk = (label, tip, fn, cls = "btn") => { const b = document.createElement("button"); b.type = "button"; b.className = cls; b.textContent = label; b.title = tip; b.addEventListener("click", fn); row.append(b); return b; };
+  if (!sync.code) {
+    const note = document.createElement("span"); note.className = "sync-note"; note.textContent = "Favourites and saved sequences, across your devices.";
+    row.append(note);
+    mk("New code", "Make a sync code for this library; type it on your other devices.", () => { sync.code = newSyncCode(); writeSync(); renderSyncRow(); libStatusEl.textContent = `Sync code ${sync.code}. Enter it on another device to share this library.`; syncNow().then(m => { if (m) libStatusEl.textContent = `Sync code ${sync.code}. ${m}`; }); });
+    mk("Enter code…", "Type a sync code from another device.", () => {
+      const v = prompt("Sync code from your other device (like amber-fox-tide-4821):", "");
+      if (v === null) return;
+      const code = v.trim().toLowerCase().replace(/\s+/g, "-");
+      if (!SYNC_CODE.test(code)) { libStatusEl.textContent = "That doesn't look like a sync code: three words and four digits, like amber-fox-tide-4821."; return; }
+      sync.code = code; sync.last = null; writeSync(); renderSyncRow();
+      libStatusEl.textContent = "Syncing…";
+      syncNow().then(m => { libStatusEl.textContent = m === "Synced." ? `Synced with ${code}: this device's favourites and sequences and the other's are now one library.` : m; });
+    });
+  } else {
+    const code = document.createElement("code"); code.className = "sync-code"; code.textContent = sync.code; code.title = "Your sync code. Enter it on another device to share this library.";
+    row.append(code);
+    const note = document.createElement("span"); note.className = "sync-note"; note.textContent = sync.busy ? "syncing…" : sync.error ? `failed: ${sync.error}` : `synced${ago}`;
+    row.append(note);
+    mk("Copy", "Copy the sync code.", () => { navigator.clipboard.writeText(sync.code).then(() => { libStatusEl.textContent = "Sync code copied."; }, () => { libStatusEl.textContent = `Sync code: ${sync.code}`; }); });
+    mk("Sync now", "Push this device's library and take the merge back.", () => { syncNow().then(m => { if (m) libStatusEl.textContent = m; }); });
+    mk("Stop", "Stop syncing on this device. The library stays here and on the server.", () => { if (!arm("sync:stop", "Press Stop again to stop syncing on this device.")) return; sync.code = null; sync.last = null; writeSync(); renderSyncRow(); libStatusEl.textContent = "Sync stopped on this device. Its favourites and sequences stay here."; });
+  }
+}
+function initSync() {
+  readSync();
+  renderSyncRow();
+  if (sync.code) syncNow().then(m => { if (m && m !== "Synced.") libStatusEl.textContent = m; });
+}
+
 
 // ---------- remembered settings (this browser only) ----------
 const STORE = "ring-loom-v1";
