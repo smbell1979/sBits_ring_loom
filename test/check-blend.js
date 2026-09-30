@@ -11,7 +11,8 @@ if (!js.includes(hook)) { console.error("FAIL: draw() hook line not found; updat
 const exposed = ["computeFrame", "blendFrames", "pairUp", "morphFrame", "rollFrame", "rollBetween", "rotBetween", "blendStartTau", "ringMatches", "look3d", "ringProgress", "cleanCard", "seqAt", "seq", "EASES", "defaults", "PRESETS", "START_PARAMS", "cleanParams",
   "readLibrary", "writeLibrary", "libraryUpsert", "parseSequenceFile", "sequenceFileData", "cardsForSave", "makeCard", "seqDirty", "seqKey",
   "lookFileData", "readLookFile", "params", "fmt", "readTyped", "BY_ID", "rgbToOklab", "oklabToRgb", "oklabToLinear", "mixColour", "hexToRgb",
-  "historyPush", "favouritesAdd", "shelfEntry", "parseFavouritesFile", "applyParams", "hist", "randomize"];
+  "historyPush", "favouritesAdd", "shelfEntry", "parseFavouritesFile", "applyParams", "hist", "randomize",
+  "ringPre", "superR", "superShape"];
 js = js.replace(hook, hook + "\nglobalThis.__t = {" + exposed.map(n => `get ${n}() { return ${n}; }`).join(", ") + "};");
 
 // In-memory localStorage whose behaviour the library tests can switch: normal, throwing
@@ -538,6 +539,81 @@ setTimeout(() => {
   check("look file also reads as a one-look sequence (Houdini path)", asSeq.cards.length === 1 &&
     JSON.stringify(asSeq.cards[0].params) === JSON.stringify(opened.params));
   if (process.env.LOOK_OUT) fs.writeFileSync(process.env.LOOK_OUT, lookText);
+
+  // Superformula: the drawn outline must be the formula going exactly round its own period, so
+  // there is no kink where the ring closes. Tested against the formula continued past the loop
+  // (r(A + d) = r(d)), not against how the page decides; the one-turn version of an odd, lopsided
+  // setting must fail that test, or it proves nothing.
+  const sf = (m, n1, n2, n3) => Object.assign(t.defaults(), { base: "super", sfM: m, sfN1: n1, sfN2: n2, sfN3: n3 });
+  const periodic = (p, A) => [0.05, 0.4, 1.1, 2.3].every(d => Math.abs(t.superR(A + d, p) - t.superR(d, p)) <= 1e-9 * Math.max(1, t.superR(d, p)));
+  const sfCases = [sf(6, 1, 7, 8), sf(4, 0.5, 0.5, 4), sf(5, 2, 7, 7), sf(5, 1.2, 4, 11), sf(7, 0.3, 20, 0.2), sf(0, 2, 3, 9), sf(1, 1, 2, 5)];
+  const sfBad = sfCases.filter(p => !periodic(p, (t.superShape(p).twice ? 2 : 1) * 2 * Math.PI));
+  check("superformula outlines close without a kink (odd and even symmetry)", sfBad.length === 0, sfBad.map(p => `m ${p.sfM} n ${p.sfN1},${p.sfN2},${p.sfN3}`).join("; "));
+  check("...and the check catches the kink when an odd lopsided one is drawn in one turn", !periodic(sf(5, 1.2, 4, 11), 2 * Math.PI));
+  // Farthest point on the unit circle: measured on the drawn ring (sphere generator, ring 0 at
+  // time 0 is the outline unrotated), not from the normalising maximum itself.
+  const sfReach = sfCases.map(p => { const o = t.ringPre(0, 5, 720, 0, { p: Object.assign(p, { gen: "sphere", wobble: 0 }) }); let m = 0; for (let j = 0; j < o.length; j += 3) m = Math.max(m, Math.hypot(o[j], o[j + 1], o[j + 2])); return m; });
+  check("superformula outlines reach the unit circle", sfReach.every(m => m > 0.99 && m < 1.01), sfReach.map(m => m.toFixed(3)).join(" "));
+
+  // Hopf fibration: every ring must be a true circle (all points on one plane, one distance from
+  // the centre of the circle through three of them), and every pair of rings linked exactly once
+  // (each ring crosses the disc spanned by the other once). Pure geometry on the output points.
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const crs = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const circleOf = pts => {  // circumcircle of the first point and those a third and two thirds round
+    const n = pts.length - 1, A = pts[0], B = pts[Math.floor(n / 3)], C = pts[Math.floor(2 * n / 3)];
+    const ab = sub(B, A), ac = sub(C, A), nn = crs(ab, ac), d = 2 * dot(nn, nn);
+    const w = crs(nn, ab).map(v => v * dot(ac, ac)), v2 = crs(ac, nn).map(v => v * dot(ab, ab));
+    const cen = [0, 1, 2].map(i => A[i] + (w[i] + v2[i]) / d), nl = Math.sqrt(dot(nn, nn));
+    return { cen, r: Math.sqrt(dot(sub(A, cen), sub(A, cen))), nrm: nn.map(v => v / nl) };
+  };
+  // Times the closed polyline pts crosses the disc spanned by circle c.
+  const discHits = (c, pts) => {
+    let hits = 0;
+    for (let j = 0; j + 1 < pts.length; j++) {
+      const h0 = dot(sub(pts[j], c.cen), c.nrm), h1 = dot(sub(pts[j + 1], c.cen), c.nrm);
+      if ((h0 > 0) === (h1 > 0)) continue;
+      const s = h0 / (h0 - h1), x = [0, 1, 2].map(i => pts[j][i] + s * (pts[j + 1][i] - pts[j][i]));
+      if (Math.sqrt(dot(sub(x, c.cen), sub(x, c.cen))) < c.r) hits++;
+    }
+    return hits;
+  };
+  const ringAt = (cx, plane) => [...Array(241).keys()].map(j => { const a = j * 2 * Math.PI / 240; return plane === "xy" ? [cx + Math.cos(a), Math.sin(a), 0] : [cx + Math.cos(a), 0, Math.sin(a)]; });
+  const unit = circleOf(ringAt(0, "xy"));
+  check("the link test tells linked rings from apart and side-by-side ones",
+    discHits(unit, ringAt(1, "xz")) === 1 && discHits(unit, ringAt(3, "xz")) === 0 && discHits(unit, ringAt(2.5, "xy")) === 0);
+  const hopfLooks = [["default", {}], ["one torus", { hopfSpread: 0 }], ["wide, 2 turns, t 3.1", { hopfLat: 110, hopfSpread: 80, hopfTurns: 2, time: 3.1 }], ["latitude at the cap", { hopfLat: 150, hopfSpread: 150 }]];
+  for (const [name, o] of hopfLooks) {
+    const p = Object.assign(t.defaults(), { gen: "hopf", rings: 14, wobble: 0.2 }, o), N = p.rings;
+    const rings = [...Array(N).keys()].map(k => { const f = t.ringPre(k, N, 240, o.time || 0, { p }); return [...Array(241).keys()].map(j => [f[3 * j], f[3 * j + 1], f[3 * j + 2]]); });
+    const circ = rings.map(circleOf);
+    let worst = 0;
+    rings.forEach((pts, k) => { const c = circ[k]; for (const q of pts) { const d = sub(q, c.cen); worst = Math.max(worst, Math.abs(Math.sqrt(dot(d, d)) - c.r) / c.r, Math.abs(dot(d, c.nrm)) / c.r); } });
+    let unlinked = 0, pairs = 0;
+    for (let a = 0; a < N; a++) for (let b = 0; b < N; b++) {
+      if (a === b) continue;
+      pairs++;
+      if (discHits(circ[a], rings[b]) !== 1) unlinked++;
+    }
+    check(`Hopf fibres are true circles, each pair linked once (${name})`, worst < 1e-9 && unlinked === 0, `worst off-circle ${worst.toExponential(1)}, ${unlinked} of ${pairs} not linked once`);
+  }
+
+  // Seeds: adding Hopf and Superformula must leave every seed that still picks an original
+  // generator and base exactly as before. The digest is of the previous release's randomize()
+  // output for those seeds (settings it had, seeds 131..39300), recorded from that version.
+  {
+    const NEW = new Set(["sfM", "sfN1", "sfN2", "sfN3", "hopfLat", "hopfSpread", "hopfTurns"]);
+    let h = 2166136261, n = 0, hopf = 0, sup = 0;
+    for (let k = 1; k <= 300; k++) {
+      const x = t.randomize(k * 131);
+      if (x.gen === "hopf") hopf++; else if (x.base === "super") sup++;
+      if (x.gen === "hopf" || x.base === "super") continue;
+      n++;
+      const s = JSON.stringify(Object.keys(x).filter(q => !NEW.has(q)).map(q => [q, x[q]]));
+      for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0;
+    }
+    check("seeds on an original generator and base come out as before", h === 4242722536 && n === 232, `${n} seeds, digest ${h}; ${hopf} now Hopf, ${sup} now Superformula`);
+  }
 
   t.seq.savedKey = t.seqKey();
   const clean = !t.seqDirty();

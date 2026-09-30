@@ -3,12 +3,19 @@
 An animated editor for twisting ring patterns: stacks of rings that each turn, squash or tilt a
 little more than the last, drawn as additive light. Live at https://ring-loom.vercel.app
 
-- **Base shapes:** circle / squircle, polygon, star, flower, heart, infinity loop.
+- **Base shapes:** circle / squircle, polygon, star, flower, heart, infinity loop, superformula.
+  - *Superformula* - Gielis' formula: Symmetry (repeats round the ring), Pinch, Shape A and B.
+    Odd symmetry with Shape A and B unequal is drawn over two turns, the only way it closes
+    without a kink.
 - **Generators:** how each ring differs from the previous one.
   - *Transform again* - each ring is the previous one squashed and turned (a true repeated matrix).
   - *Sphere spin* - rings rotated about a tilted 3D axis.
   - *Slinky* - rings strung around an orbit.
   - *Harmonograph* - Lissajous loops with a phase drift per ring.
+  - *Hopf fibration* - each ring is the fibre over one point of a sphere, stereographically
+    projected: exact circles, every pair linked once. Latitude, Latitude spread (0 keeps them on
+    one torus) and Turns place the points; the base shape and Wobble are ignored. Latitude stops
+    at 150, where the biggest rings are about 3x the frame.
   - *Two-ellipse blend* - interpolates a start ellipse into an end ellipse.
   - *Two Lanes (measured)* - 31 ellipses measured from the Two Lanes "Searching" cover. The two
     outermost are near-circles whose measured angles were noise, so they follow the fitted trend
@@ -242,3 +249,9 @@ reordering randomized parameters changes what every seed produces. Randomize pic
 palette, so adding a palette changes the colour a seed number gives (only its colour: the palette
 is one random draw). Saved looks, sequences and the default store the palette by name, so they
 never change.
+Hopf fibration and Superformula were added without disturbing old seeds: the original draw
+still picks among the original generators and base shapes, and a second random stream gives the
+new ones their fair share (1 in 7) and draws the superformula settings. Measured on 20,000 seeds:
+79% come out exactly as before; the rest became Hopf (14%) or Superformula (7%) looks. Mutate is
+unchanged for every look. New generators or base shapes should follow the same pattern
+(`pickKeepingSeeds`, `onBase`).

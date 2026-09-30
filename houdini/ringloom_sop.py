@@ -67,8 +67,8 @@ PALETTES = {
     "sunset": ["#7b2ff7", "#f107a3", "#ff6a00", "#ffd000"],
     "custom": None,
 }
-GENS = ["cover", "sphere", "again", "blend", "harmono", "slinky"]
-BASES = ["circle", "polygon", "star", "flower", "heart", "infinity"]
+GENS = ["cover", "sphere", "again", "blend", "harmono", "slinky", "hopf"]
+BASES = ["circle", "polygon", "star", "flower", "heart", "infinity", "super"]
 
 # (id, type, default, min, max) for numbers; (id, type, default, options) for menus. Order and
 # values must match the page's SCHEMA -- test_parity.py compares them.
@@ -78,6 +78,10 @@ SCHEMA = [
     ("sides", "range", 5, 3, 16),
     ("depth", "range", 0.45, 0, 0.9),
     ("superexp", "range", 2, 0.4, 5),
+    ("sfM", "range", 5, 0, 24),
+    ("sfN1", "range", 2, 0.3, 20),
+    ("sfN2", "range", 7, 0.2, 20),
+    ("sfN3", "range", 7, 0.2, 20),
     ("rings", "range", 31, 2, 140),
     ("res", "range", 360, 48, 720),
     ("wobble", "range", 0, 0, 0.45),
@@ -108,6 +112,9 @@ SCHEMA = [
     ("loops", "range", 1, 0.1, 4),
     ("closed", "toggle", False),
     ("tilt", "range", 75, 0, 90),
+    ("hopfLat", "range", 70, 5, 150),
+    ("hopfSpread", "range", 60, 0, 150),
+    ("hopfTurns", "range", 1, 0.1, 4),
     ("speed", "range", 1, 0, 3),
     ("drift", "range", 0.3, 0, 2),
     ("rotate", "range", 0, -180, 180),
@@ -381,6 +388,27 @@ def js_mod_pos(th, seg):
     return np.fmod(np.fmod(th, seg) + seg, seg)
 
 
+SUPER_SAMPLES = 1440
+
+
+def super_r(a, p):
+    """Superformula radius (page superR): (|cos(m a/4)|^n2 + |sin(m a/4)|^n3)^(-1/n1), 0 where
+    that overflows."""
+    x = jsround(p["sfM"]) * np.asarray(a, dtype=np.float64) / 4
+    with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+        b = np.abs(np.cos(x)) ** p["sfN2"] + np.abs(np.sin(x)) ** p["sfN3"]
+        r = b ** (-1 / p["sfN1"])
+    return np.where(np.isfinite(r), r, 0.0)
+
+
+def super_shape(p):
+    """(largest radius over both turns, whether the outline goes round twice) -- page superShape:
+    odd symmetry with Shape A != Shape B only closes without a kink over two turns."""
+    m = jsround(p["sfM"])
+    rmax = float(np.max(super_r(2 * TAU * np.arange(SUPER_SAMPLES) / SUPER_SAMPLES, p)))
+    return (rmax if rmax > 0 else 1.0), (m % 2 == 1 and p["sfN2"] != p["sfN3"])
+
+
 def base_xy(th, c, s, p, e):
     n = jsround(p["sides"])
     b = p["base"]
@@ -408,9 +436,17 @@ def base_xy(th, c, s, p, e):
     if b == "infinity":
         d = 1 + s * s
         return c / d, (s * c) / d * 1.4
+    if b == "super":
+        smax, twice = super_shape(p)
+        a = 2 * th if twice else th
+        r = super_r(a, p) / smax
+        return np.cos(a) * r, np.sin(a) * r
     if e == 1:
         return c, s
     return np.sign(c) * np.abs(c) ** e, np.sign(s) * np.abs(s) ** e
+
+
+HOPF_SCALE = 0.45
 
 
 def ring_world(p, k, N, M, time, mats):
@@ -440,6 +476,15 @@ def ring_world(p, k, N, M, time, mats):
         x = A * np.sin(p["fx"] * th + hpx) * rr
         y = A * np.sin(p["fy"] * th + math.pi / 2) * rr
         z = np.zeros_like(x)
+    elif g == "hopf":
+        # Hopf fibre over (latitude, longitude) of the 2-sphere, stereographically projected from
+        # (0, 0, 0, 1): an exact circle; every pair links once (page ringPre, which explains the
+        # latitude cap at 150). Base shape and wobble are ignored.
+        lat = min(max(p["hopfLat"] + p["hopfSpread"] * (u - 0.5), 3), 150) * D2R / 2
+        hc, hs = math.cos(lat), math.sin(lat)
+        az = TAU * p["hopfTurns"] * k / N + p["drift"] * time * 0.4
+        d = HOPF_SCALE / (1 - hs * np.sin(th + az))
+        x, y, z = hc * c * d, hc * s * d, hs * np.cos(th + az) * d
     else:  # slinky
         # One full turn: spaced 360/N, so the last ring stops a gap short of the first (page ringPre).
         ph = (TAU * k / N if p["closed"] else TAU * p["loops"] * u) + p["drift"] * time * 0.4

@@ -419,11 +419,11 @@ const COVER_SCALE = 1.05;
 
 const GENS = {
   cover: "Two Lanes (measured)", sphere: "Sphere spin", again: "Transform again",
-  blend: "Two-ellipse blend", harmono: "Harmonograph", slinky: "Slinky",
+  blend: "Two-ellipse blend", harmono: "Harmonograph", slinky: "Slinky", hopf: "Hopf fibration",
 };
 const BASES = {
   circle: "Circle / squircle", polygon: "Polygon", star: "Star", flower: "Flower",
-  heart: "Heart", infinity: "Infinity loop",
+  heart: "Heart", infinity: "Infinity loop", super: "Superformula",
 };
 const HAS_SIDES = new Set(["polygon", "star", "flower"]);
 const PALETTES = {
@@ -453,8 +453,13 @@ const paletteLabels =Object.fromEntries(Object.entries(PALETTES).map(([k, v]) =>
 
 // idle(p): why a control has no effect right now (shown dimmed with this as a tooltip), or null.
 const FLAT_GENS = new Set(["cover", "again", "blend", "harmono"]);
-const IDLE_HARMONO = p => p.gen === "harmono" ? "Harmonograph draws its own curves, so the base shape is ignored." : null;
-const IDLE_NO_WOBBLE = p => p.wobble === 0 ? "No effect while Wobble is 0." : null;
+// Harmonograph and Hopf fibration draw their own curves (Lissajous loops; fibre circles), so the
+// base shape and its settings do nothing there.
+const IDLE_HARMONO = p => p.gen === "harmono" ? "Harmonograph draws its own curves, so the base shape is ignored."
+  : p.gen === "hopf" ? "Hopf fibration rings are exact circles (the fibres), so the base shape is ignored." : null;
+// Wobble would bend the Hopf fibres out of true circles, which is the point of that generator.
+const IDLE_HOPF_WOBBLE = p => p.gen === "hopf" ? "Hopf fibration keeps its rings exact circles, so Wobble is ignored." : null;
+const IDLE_NO_WOBBLE = p => IDLE_HOPF_WOBBLE(p) || (p.wobble === 0 ? "No effect while Wobble is 0." : null);
 const IDLE_NO_FADE = p => p.fade === 0 ? "No effect while Ring fade is 0." : null;
 const CLOSABLE = new Set(["slinky", "sphere", "again", "harmono"]);
 const IDLE_CLOSED = p => p.closed ? "One full turn is on: the rings go exactly once around, spaced by the ring count." : null;
@@ -474,9 +479,19 @@ const SCHEMA = [
       to: n => n >= 2 ? Math.log(n / 2) / Math.log(2.5) : Math.log(n / 2) / Math.log(5),
       from: d => d >= 0 ? 2 * Math.pow(2.5, d) : 2 * Math.pow(5, d) },
     tip: "0 is a perfect circle. Right: squarer, toward a rounded square. Left: pinched, toward a diamond and a star." },
+  // Superformula (superR). onBase: randomized from a separate stream only when that base is picked
+  // (randomize, mutate), so adding these left every other seed's draws where they were.
+  { id: "sfM", group: "shape", label: "Symmetry", type: "range", min: 0, max: 24, step: 1, def: 5, r: [2, 12], onBase: "super", when: p => p.base === "super", idle: IDLE_HARMONO,
+    tip: "How many times the shape repeats round the ring (0 is a circle). Odd counts with Shape A and B unequal go round twice to close." },
+  { id: "sfN1", group: "shape", label: "Pinch", type: "range", min: 0.3, max: 20, step: 0.01, def: 2, r: [0.5, 8], onBase: "super", when: p => p.base === "super", idle: IDLE_HARMONO,
+    tip: "Low: sharp spikes reaching out. High: puffed out toward a circle." },
+  { id: "sfN2", group: "shape", label: "Shape A", type: "range", min: 0.2, max: 20, step: 0.01, def: 7, r: [0.5, 12], onBase: "super", when: p => p.base === "super", idle: IDLE_HARMONO,
+    tip: "Shapes one side of each repeat: low bulges it out, high pulls it in." },
+  { id: "sfN3", group: "shape", label: "Shape B", type: "range", min: 0.2, max: 20, step: 0.01, def: 7, r: [0.5, 12], onBase: "super", when: p => p.base === "super", idle: IDLE_HARMONO,
+    tip: "Shapes the other side of each repeat. Unequal to Shape A makes the repeats lopsided." },
   { id: "rings", group: "shape", label: "Rings", type: "range", min: 2, max: 140, step: 1, def: 31, r: [18, 90] },
   { id: "res", group: "shape", label: "Smoothness", type: "range", min: 48, max: 720, step: 8, def: 360, r: null },
-  { id: "wobble", group: "shape", label: "Wobble", type: "range", min: 0, max: 0.45, step: 0.005, def: 0, r: [0.02, 0.22], rp: 0.5 },
+  { id: "wobble", group: "shape", label: "Wobble", type: "range", min: 0, max: 0.45, step: 0.005, def: 0, r: [0.02, 0.22], rp: 0.5, idle: IDLE_HOPF_WOBBLE },
   { id: "lobes", group: "shape", label: "Lobes", type: "range", min: 0, max: 24, step: 1, def: 5, r: [2, 12], idle: IDLE_NO_WOBBLE },
   { id: "ringPhase", group: "shape", label: "Lobe shift", type: "range", min: 0, max: 0.5, step: 0.001, def: 0.03, r: [0, 0.2], idle: IDLE_NO_WOBBLE },
   { id: "wobbleSpeed", group: "shape", label: "Lobe speed", type: "range", min: -4, max: 4, step: 0.01, def: 0.8, r: [-2, 2], idle: IDLE_NO_WOBBLE },
@@ -517,6 +532,13 @@ const SCHEMA = [
   { id: "closed", group: "gen", label: "One full turn", type: "toggle", def: false, when: p => CLOSABLE.has(p.gen),
     tip: "Exactly one full cycle, the rings spaced evenly by the ring count, so the last never lands on the first. Add rings and the spacing adjusts." },
   { id: "tilt", gen: "slinky", label: "Ring tilt", type: "range", min: 0, max: 90, step: 0.5, def: 75, r: [20, 90] },
+
+  { id: "hopfLat", gen: "hopf", label: "Latitude", type: "range", min: 5, max: 150, step: 0.5, def: 70, r: [30, 120],
+    tip: "Where on the sphere the rings' points sit, from the pole (small, nested rings) toward the far pole (rings swelling out past the frame)." },
+  { id: "hopfSpread", gen: "hopf", label: "Latitude spread", type: "range", min: 0, max: 150, step: 0.5, def: 60, r: [0, 100],
+    tip: "0 keeps every ring on one torus; more spreads them across nested tori." },
+  { id: "hopfTurns", gen: "hopf", label: "Turns", type: "range", min: 0.1, max: 4, step: 0.01, def: 1, r: [0.5, 2],
+    tip: "How many times the rings go round the sphere, spaced by the ring count." },
 
   { id: "speed", group: "motion", label: "Time speed", type: "range", min: 0, max: 3, step: 0.01, def: 1, r: null },
   { id: "drift", group: "motion", label: "Drift", type: "range", min: 0, max: 2, step: 0.01, def: 0.3, r: [0.1, 1],
@@ -600,6 +622,8 @@ const PRESETS = {
   "Star weave": { gen: "again", base: "star", sides: 5, depth: 0.5, rings: 64, squashA: 0.975, stretchA: 0.995, turn: 4.5, drift: 0.7, palette: "spectrum", spread: 0.9, cycle: 30, glow: 6, width: 0.9 },
   "Heart tunnel": { gen: "again", base: "heart", rings: 56, squashA: 0.955, stretchA: 0.965, turn: 7, drift: 0.8, pitch: 30, persp: 0.6, palette: "dusk", glow: 9, trails: 0.4 },
   "Triangle twist": { gen: "sphere", base: "polygon", sides: 3, rings: 60, alpha: 48, sweep: 220, drift: 0.45, palette: "ice", glow: 7, width: 0.9 },
+  "Hopf links": { gen: "hopf", rings: 48, hopfLat: 80, hopfSpread: 70, hopfTurns: 1, drift: 0.4, pitch: 35, yaw: 20, persp: 0.4, palette: "spectrum", spread: 0.9, glow: 7, width: 0.9 },
+  "Superformula bloom": { gen: "again", base: "super", sfM: 6, sfN1: 0.9, sfN2: 6, sfN3: 9, rings: 34, squashA: 0.94, stretchA: 0.99, turn: 4, drift: 0.5, palette: "ember", glow: 6, width: 0.9, alphaL: 0.7 },
 };
 // Opening look: Scott's pick -- seed 33510, then view nudged (yaw 9, pitch -3) and trails 0.88.
 // Stored as explicit values rather than the seed, because a seed only reproduces its look while
@@ -669,37 +693,56 @@ function randomHex(rnd) {
   const [r, g, b] = hslToRgb(rnd() * 360, 0.85 + rnd() * 0.15, 0.5 + rnd() * 0.15);
   return rgbToHex(r, g, b);
 }
+// Generators and base shapes Randomize knew before any were added (the first entries of GENS and
+// BASES). Picking from the longer lists directly re-buckets the draw and changed the generator of
+// 49% of seeds (measured, 2002 seeds); instead the old draw picks among these, and the side stream
+// hands each later addition its fair share (1 in 7 for one addition), so the rest are unchanged.
+const SEED_GENS = 6, SEED_BASES = 6;
+function pickKeepingSeeds(keys, nOld, r, side) {
+  const nNew = keys.length - nOld, v = side();
+  if (nNew > 0 && v < nNew / keys.length) return keys[nOld + Math.floor(v * keys.length)];
+  return keys[Math.floor(r * nOld)];
+}
 function randomize(sd) {
   const rnd = mulberry32(sd);
+  // Side stream for everything added after seeds were in use; see pickKeepingSeeds and onBase.
+  const side = mulberry32(sd ^ 0x9e3779b9);
   const p = defaults();
-  const gens = Object.keys(GENS);
-  p.gen = gens[Math.floor(rnd() * gens.length)];
+  p.gen = pickKeepingSeeds(Object.keys(GENS), SEED_GENS, rnd(), side);
   // All palettes. Adding one changes the colour a seed number gives (one random draw picks it),
   // but nothing else about that seed; saved looks store the palette by name, so they don't change.
   const pals = Object.keys(PALETTES);
   p.palette = pals[Math.floor(rnd() * pals.length)];
   p.colorA = randomHex(rnd); p.colorB = randomHex(rnd);
-  const bases = Object.keys(BASES);
-  p.base = rnd() < 0.45 ? "circle" : bases[Math.floor(rnd() * bases.length)];
+  if (rnd() < 0.45) p.base = "circle";
+  else p.base = pickKeepingSeeds(Object.keys(BASES), SEED_BASES, rnd(), side);
   for (const s of SCHEMA) {
-    if (s.type !== "range" || !s.r) continue;
+    if (s.type !== "range" || !s.r || s.onBase) continue;
     if (s.gen && s.gen !== p.gen) continue;
     if (s.rp !== undefined && rnd() > s.rp) continue;
     p[s.id] = snap(s, lerp(s.r[0], s.r[1], rnd()));
   }
   p.additive = rnd() < 0.85;
+  // Base-shape settings added later draw from the side stream too, so seeds whose base doesn't
+  // use them come out exactly as before.
+  for (const s of SCHEMA) if (s.type === "range" && s.r && s.onBase === p.base) p[s.id] = snap(s, lerp(s.r[0], s.r[1], side()));
   return p;
 }
 function mutate(p, sd) {
   const rnd = mulberry32(sd);
   const q = { ...p };
   for (const s of SCHEMA) {
-    if (s.type !== "range" || !s.r) continue;
+    if (s.type !== "range" || !s.r || s.onBase) continue;
     if (s.gen && s.gen !== q.gen) continue;
     if (rnd() < 0.5) continue;
     q[s.id] = snap(s, q[s.id] + (rnd() * 2 - 1) * 0.08 * (s.max - s.min));
   }
   if (rnd() < 0.15) { const pals = Object.keys(PALETTES); q.palette = pals[Math.floor(rnd() * pals.length)]; }
+  const side = mulberry32(sd ^ 0x9e3779b9);  // as in randomize: the old draws stay put
+  for (const s of SCHEMA) {
+    if (s.type !== "range" || !s.r || s.onBase !== q.base || side() < 0.5) continue;
+    q[s.id] = snap(s, q[s.id] + (side() * 2 - 1) * 0.08 * (s.max - s.min));
+  }
   return q;
 }
 
@@ -860,6 +903,31 @@ function linearMats(p, N, time) {
   return mats;
 }
 
+// Superformula radius r(a) = (|cos(m a/4)|^n2 + |sin(m a/4)|^n3)^(-1/n1). The bracket repeats
+// every 4pi/m in a, so with m even the outline closes in one turn. With m odd it only closes if
+// n2 = n3 (the bracket then repeats twice as often); otherwise one turn ends on a kink where the
+// cos and sin terms have swapped, so the outline goes round twice (a = 2 th), the usual way to draw
+// odd-m Gielis curves. Returns 0 rather than Infinity where the bracket underflows to 0.
+function superR(a, p) {
+  const x = Math.round(p.sfM) * a / 4;
+  const b = Math.pow(Math.abs(Math.cos(x)), p.sfN2) + Math.pow(Math.abs(Math.sin(x)), p.sfN3);
+  const r = Math.pow(b, -1 / p.sfN1);
+  return Number.isFinite(r) ? r : 0;
+}
+// Largest radius (sampled over both turns) and whether the outline needs two, cached per setting
+// since every ring and frame shares it.
+let superCache = { key: "", v: null };
+function superShape(p) {
+  const key = `${Math.round(p.sfM)},${p.sfN1},${p.sfN2},${p.sfN3}`;
+  if (superCache.key === key) return superCache.v;
+  let max = 0;
+  for (let i = 0; i < SUPER_SAMPLES; i++) max = Math.max(max, superR(2 * TAU * i / SUPER_SAMPLES, p));
+  const v = { max: max > 0 ? max : 1, twice: Math.round(p.sfM) % 2 === 1 && p.sfN2 !== p.sfN3 };
+  superCache = { key, v };
+  return v;
+}
+const SUPER_SAMPLES = 1440;
+
 // The base outline every ring is drawn from, before its generator transform. Returns [x, y] for
 // angle th (c, s are its cos/sin). Outlines sit roughly inside the unit circle.
 function baseXY(th, c, s, p, e) {
@@ -891,11 +959,19 @@ function baseXY(th, c, s, p, e) {
       const d = 1 + s * s;
       return [c / d, (s * c) / d * 1.4];
     }
+    case "super": {
+      // Gielis' superformula, scaled so its farthest point sits on the unit circle.
+      const sf = superShape(p), a = sf.twice ? 2 * th : th, r = superR(a, p) / sf.max;
+      return [Math.cos(a) * r, Math.sin(a) * r];
+    }
     default:
       if (e === 1) return [c, s];
       return [Math.sign(c) * Math.pow(Math.abs(c), e), Math.sign(s) * Math.pow(Math.abs(s), e)];
   }
 }
+
+// Sized so the default Hopf look (latitude 70, spread 60) fills about like Sphere spin.
+const HOPF_SCALE = 0.45;
 
 // One ring's points before the view: x, y, z per point (the last repeats the first).
 function ringPre(k, N, M, time, ctx) {
@@ -903,8 +979,20 @@ function ringPre(k, N, M, time, ctx) {
   const out = new Float64Array(3 * (M + 1));
   const e = 2 / p.superexp, lobes = Math.round(p.lobes), wob = p.wobble;
   const wph = TAU * p.ringPhase * k + p.wobbleSpeed * time;
-  let lin = null, R3 = null, harm = null, sl = null;
+  let lin = null, R3 = null, harm = null, sl = null, hopf = null;
   if (ctx.mats) lin = ctx.mats[k];
+  else if (p.gen === "hopf") {
+    // Ring k is the Hopf fibre over one point of the 2-sphere: latitude (polar angle from the
+    // pole) spread across the rings, longitude stepping Turns times round. The fibre is a great
+    // circle of the 3-sphere, (c cos th, c sin th, s cos(th + az), s sin(th + az)) with c, s the
+    // cos and sin of half the latitude, and stereographic projection from (0, 0, 0, 1) turns it
+    // into a circle in 3D. Every pair of fibres links once. Latitude stays off the poles: at 0 all
+    // fibres are the same circle, and toward 180 the fibre nears the projection point and swells
+    // toward a line. 150 is about 3x the frame; past that a floor on the divisor was needed and it
+    // bent the fibres out of true circles (measured: from about 157).
+    const lat = clamp(p.hopfLat + p.hopfSpread * (u - 0.5), 3, 150) * D2R / 2;
+    hopf = { c: Math.cos(lat), s: Math.sin(lat), az: TAU * p.hopfTurns * k / N + p.drift * time * 0.4 };
+  }
   else if (p.gen === "sphere") {
     const a = p.alpha * D2R;
     // One full turn: 360 x k / N instead of Sweep x k / (N - 1).
@@ -926,6 +1014,10 @@ function ringPre(k, N, M, time, ctx) {
     if (lin) { x = lin[0] * px + lin[1] * py; y = lin[2] * px + lin[3] * py; z = 0; }
     else if (R3) { x = R3[0] * px + R3[1] * py; y = R3[3] * px + R3[4] * py; z = R3[6] * px + R3[7] * py; }
     else if (harm) { x = harm.A * Math.sin(p.fx * th + harm.px) * rr; y = harm.A * Math.sin(p.fy * th + harm.py) * rr; z = 0; }
+    else if (hopf) {
+      const d = HOPF_SCALE / (1 - hopf.s * Math.sin(th + hopf.az));  // >= 0.034 at latitude 150
+      x = hopf.c * c * d; y = hopf.c * s * d; z = hopf.s * Math.cos(th + hopf.az) * d;
+    }
     else {
       x = sl.cx + sl.r * (px * sl.e1[0] + py * sl.e2[0]);
       y = sl.cy + sl.r * (px * sl.e1[1] + py * sl.e2[1]);
@@ -1415,7 +1507,7 @@ function fmt(s, v) {
 const uiOf = s => s.ui || s;  // the scale the slider and field work in
 // Sliders that are counts: the drawing rounds them, so a typed value is rounded too rather than
 // showing a fraction that has no effect.
-const COUNTS = new Set(["sides", "rings", "res", "lobes", "mirror", "fx", "fy"]);
+const COUNTS = new Set(["sides", "rings", "res", "lobes", "mirror", "fx", "fy", "sfM"]);
 // A typed value for slider s: null if the text isn't a number, else the number clamped to the
 // slider's range (files are clamped the same way on load, so a value outside it wouldn't survive).
 // Accepts a leading +, a typographic minus and a decimal comma.

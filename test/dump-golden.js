@@ -82,7 +82,17 @@ looks.push(["pitch 90", Object.assign(t.defaults(), { gen: "sphere", rings: 12, 
 looks.push(["pitch -90", Object.assign(t.defaults(), { gen: "slinky", rings: 14, pitch: -90, roll: 30 })]);
 // Typed values between the sliders' steps (the page keeps them exactly).
 looks.push(["typed off-step values", Object.assign(t.defaults(), { gen: "again", roll: 12.37, yaw: -7.33, pitch: 3.14159, twist: 45.125, squash: 0.9137, zoom: 1.0625 })]);
-looks.push(["roll+mirror", Object.assign(t.defaults(), { gen: "slinky", roll: 75, pitch: 30, mirror: 5, rings: 20 })]);
+// Hopf fibration: one torus, spread across tori with Turns and a view, and the latitude cap.
+looks.push(["hopf default", Object.assign(t.defaults(), { gen: "hopf", rings: 14 })]);
+looks.push(["hopf wide 2 turns", Object.assign(t.defaults(), { gen: "hopf", rings: 18, hopfLat: 110, hopfSpread: 80, hopfTurns: 2, drift: 0.7, pitch: 35, yaw: -20, persp: 0.5, base: "star", wobble: 0.2 })]);
+looks.push(["hopf one torus capped", Object.assign(t.defaults(), { gen: "hopf", rings: 11, hopfLat: 150, hopfSpread: 0, zoom: 0.5 })]);
+// Latitude 76 +- 75 runs 1..151, past both caps (3 and 150), so the clamps themselves are compared.
+looks.push(["hopf past both caps", Object.assign(t.defaults(), { gen: "hopf", rings: 21, hopfLat: 76, hopfSpread: 150, zoom: 0.4 })]);
+// Superformula: even symmetry, odd with Shape A = B (one turn), odd lopsided (two turns), and 0.
+for (const [m, n1, n2, n3, gen] of [[6, 1, 7, 8, "again"], [5, 2, 7, 7, "sphere"], [7, 1.2, 4, 11, "again"], [3, 0.4, 20, 0.2, "slinky"], [0, 2, 3, 9, "cover"]]) {
+  looks.push([`superformula ${m} ${n1} ${n2} ${n3} ${gen}`, Object.assign(t.defaults(), { gen, base: "super", sfM: m, sfN1: n1, sfN2: n2, sfN3: n3, rings: 12, wobble: 0.08, pitch: 20 })]);
+}
+looks.push(["roll+mirror",Object.assign(t.defaults(), { gen: "slinky", roll: 75, pitch: 30, mirror: 5, rings: 20 })]);
 
 const cases = [];
 for (const [name, p] of looks) {
@@ -128,7 +138,8 @@ const blendPairs = [
     flat({ gen: "harmono", rings: 12, yaw: -120, pitch: -10, zoom: 0.8 }), { stagger: 0.6, ease: "smooth", turns: -1 }],
   ["swirl", flat({ gen: "again", rings: 24, base: "star", sides: 5 }), flat({ gen: "cover", rings: 19 }), { swirl: 270, ease: "smooth" }],
   ["swirl zoomed", flat({ gen: "blend", rings: 25, zoom: 1.6 }), flat({ gen: "blend", rings: 25, zoom: 1.6, phase: -90 }), { swirl: -405 }],
-  ["all together", flat({ gen: "harmono", rings: 12, roll: 20, mirror: 4 }), flat({ gen: "cover", rings: 19, roll: -100 }), { turns: 1, stagger: -0.55, swirl: 180, ease: "out" }],
+  ["hopf -> superformula", flat({ gen: "hopf", rings: 16, pitch: 30, persp: 0.4 }), flat({ gen: "again", rings: 24, base: "super", sfM: 7, sfN1: 1.2, sfN2: 4, sfN3: 11 }), { stagger: 0.3, ease: "smooth" }],
+  ["all together",flat({ gen: "harmono", rings: 12, roll: 20, mirror: 4 }), flat({ gen: "cover", rings: 19, roll: -100 }), { turns: 1, stagger: -0.55, swirl: 180, ease: "out" }],
 ];
 const blends = [];
 for (const [name, a, b, how = {}] of blendPairs) {

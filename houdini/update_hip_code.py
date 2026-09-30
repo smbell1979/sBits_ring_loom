@@ -31,11 +31,13 @@ code = open(os.path.join(HERE, "ringloom_sop.py"), encoding="utf-8").read()
 
 # Two looks with different rolls, sampled a quarter of the way through a blend that adds an extra
 # roll turn, so the check covers the newest view and sequence features, not just one still look.
-probe_a = dict(E.DEFAULTS, gen="sphere", roll=63.0, yaw=-28.0, pitch=17.0, persp=0.5, rings=9, res=64)
+# The newest generator and base shape ride along: Hopf fibration on one side, an odd lopsided
+# Superformula (drawn over two turns) on the other.
+probe_a = dict(E.DEFAULTS, gen="hopf", roll=63.0, yaw=-28.0, pitch=17.0, persp=0.5, rings=9, res=64)
 # Different palettes, so the colour mixing (OKLCH, with out-of-range colours pulled toward grey)
 # is checked too, not only positions.
 # Its view differs too (yaw, pitch, spin), so the 3D view blend is covered.
-probe_b = dict(E.DEFAULTS, gen="cover", roll=-40.0, yaw=35.0, pitch=-10.0, spin=25.0, persp=0.5, rings=6, res=64,
+probe_b = dict(E.DEFAULTS, gen="cover", base="super", sfM=5, sfN1=1.3, sfN2=3.0, sfN3=8.0, roll=-40.0, yaw=35.0, pitch=-10.0, spin=25.0, persp=0.5, rings=6, res=64,
                palette="acid" if E.DEFAULTS["palette"] != "acid" else "ember")
 probe_cards = [{"name": "probe a", "params": probe_a, "hold": 0.5, "blend": 2, "ease": "linear", "turns": 1,
                 "stagger": 0.5, "swirl": 200},
