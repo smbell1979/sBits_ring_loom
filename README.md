@@ -282,6 +282,7 @@ and base shapes, and a second random stream gives the new ones their fair share 
 generators, 1 in 7 for the base shape) and draws the superformula settings. Measured on 20,000
 seeds against the release before any were added: 51% come out exactly as before; the rest became
 looks on a new generator (about 9% each) or a Superformula (4%). Each addition also reshuffles a
-few seeds among the earlier new generators (Möbius strip: 2.7%). Mutate is unchanged for every look on the original
+few seeds among the earlier new generators (adding the Möbius strip: 5.3%, with 9.2% becoming
+strips and 85.5% unchanged; the spiral's rename changes only its id). Mutate is unchanged for every look on the original
 generators; on Pendulum looks it now nudges Period along its log track. New generators or base shapes should follow the same pattern
 (`pickKeepingSeeds`, `onBase`).
