@@ -789,6 +789,47 @@ setTimeout(() => {
     check("two-ellipse blend: no ring left on its own at any Spacing", bad.length === 0, bad.join("; ") || "0.3 / 0.5 / 0.8 / 1 / 1.5 / 3");
   }
 
+  // Dots are spaced evenly along each ring (Resample-style): the distances between neighbouring
+  // dots on a ring, in 3D before the view, must all be within 8% of each other -- on the Hopf
+  // fibration and a spirograph with loops, whose parameter steps bunch badly (57x and 6x before),
+  // and a star, whose corners fall between the finer samples the dots are spaced on, cutting each
+  // by up to 3% of a step (1.06 measured; 4.3 before).
+  // The last point still repeats the first, and lines keep their parameter steps.
+  {
+    const bad = [];
+    for (const [name, o] of [["hopf", { gen: "hopf", hopfLat: 120, hopfSpread: 60 }], ["spirograph loops", { gen: "spiro", spPen: 1.8 }], ["star", { gen: "again", base: "star", sides: 5 }]]) {
+      // Distance along the ring, not straight-line (shorter across a star's corner): each point is
+      // projected onto the nearest segment of a 64x finer copy of the ring and read off its running
+      // length. (Snapping to the nearest vertex instead was off by half a segment, 0.007 on the big
+      // near-pole Hopf ring, and misreported the spacing as 17% uneven.)
+      const fine = t.look3d(Object.assign(t.defaults(), { rings: 8, res: 96, draw: "lines", wobble: 0 }, o), 1.7, 64 * 96).rings.map(r => {
+        const cum = [0]; for (let j = 0; j + 3 < r.pre.length; j += 3) cum.push(cum[cum.length - 1] + Math.hypot(r.pre[j + 3] - r.pre[j], r.pre[j + 4] - r.pre[j + 1], r.pre[j + 5] - r.pre[j + 2]));
+        return { pre: r.pre, cum };
+      });
+      const along = (q, fr) => { let best = Infinity, at = 0;
+        for (let j = 0, i = 0; j + 3 < fr.pre.length; j += 3, i++) {
+          const ax = fr.pre[j], ay = fr.pre[j + 1], az = fr.pre[j + 2], vx = fr.pre[j + 3] - ax, vy = fr.pre[j + 4] - ay, vz = fr.pre[j + 5] - az;
+          const l2 = vx * vx + vy * vy + vz * vz, u = l2 > 0 ? Math.max(0, Math.min(1, ((q[0] - ax) * vx + (q[1] - ay) * vy + (q[2] - az) * vz) / l2)) : 0;
+          const d = (ax + u * vx - q[0]) ** 2 + (ay + u * vy - q[1]) ** 2 + (az + u * vz - q[2]) ** 2;
+          if (d < best) { best = d; at = fr.cum[i] + u * (fr.cum[i + 1] - fr.cum[i]); }
+        }
+        return at; };
+      for (const draw of ["dots", "lines"]) {
+        const p = Object.assign(t.defaults(), { rings: 8, res: 96, draw, wobble: 0 }, o), f = t.look3d(p, 1.7);
+        let ratio = 0, closed = 0;
+        f.rings.forEach((r, k) => {
+          const total = fine[k].cum[fine[k].cum.length - 1], s = [];
+          for (let j = 0; j + 3 < r.pre.length; j += 3) s.push(along([r.pre[j], r.pre[j + 1], r.pre[j + 2]], fine[k]));
+          const d = s.slice(1).map((v, i) => v - s[i]); d.push(total - s[s.length - 1]);
+          ratio = Math.max(ratio, Math.max(...d) / Math.min(...d));
+          closed = Math.max(closed, Math.hypot(r.pre[r.pre.length - 3] - r.pre[0], r.pre[r.pre.length - 2] - r.pre[1], r.pre[r.pre.length - 1] - r.pre[2]));
+        });
+        if (draw === "dots" ? (ratio > 1.08 || closed > 0 || f.rings[0].pre.length !== 3 * 97) : ratio < 1.5) bad.push(`${name} ${draw}: longest/shortest step along the ring ${ratio.toFixed(2)}`);
+      }
+    }
+    check("dots sit evenly along each ring; lines keep their parameter steps", bad.length === 0, bad.join("; ") || "hopf, spirograph loops, star");
+  }
+
   // Pendulum Period's log slider track: ends at 4 and 720 s, 30 s round-trips exactly and sits well
   // into the track (a plain 4-720 track put it at 3.6%), and Mutate nudges it by at most 180^0.08
   // (x1.52) either way rather than +-57 s.

@@ -1076,6 +1076,33 @@ const HOPF_SCALE = 0.45;
 // ran off the frame; at 0.7 the default fits (0.96).
 const LOXO_SCALE = 0.7;
 
+// M points spaced evenly by distance along a closed ring given as a finer polyline (x, y, z per
+// point, the last repeating the first), the first point kept, the last repeating it again.
+// Linear along the polyline, so the ring is sampled dotOversample(M) times finer first: 16x with
+// few dots, fewer as the dots go up, keeping the sampling to about 2900 points a ring. (4x left
+// dots on the Hopf fibration, whose parameter steps are 56x uneven, up to a pixel off the true
+// curve.) Houdini's resample_ring / dot_oversample must match this exactly (same sums, same
+// segment search).
+const dotOversample = M => Math.max(4, Math.min(16, Math.round(2880 / M)));
+function resampleRing(src, M) {
+  const n = src.length / 3 - 1, cum = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) {
+    const dx = src[3 * i + 3] - src[3 * i], dy = src[3 * i + 4] - src[3 * i + 1], dz = src[3 * i + 5] - src[3 * i + 2];
+    cum[i + 1] = cum[i] + Math.sqrt(dx * dx + dy * dy + dz * dz);
+  }
+  const total = cum[n], out = new Float64Array(3 * (M + 1));
+  if (!(total > 0)) { for (let j = 0; j <= M; j++) { out[3 * j] = src[0]; out[3 * j + 1] = src[1]; out[3 * j + 2] = src[2]; } return out; }
+  let i = 0;
+  for (let j = 0; j < M; j++) {
+    const s = total * j / M;
+    while (i + 1 < n && cum[i + 1] <= s) i++;
+    const seg = cum[i + 1] - cum[i], t = seg > 0 ? (s - cum[i]) / seg : 0;
+    for (let c = 0; c < 3; c++) out[3 * j + c] = src[3 * i + c] + t * (src[3 * i + 3 + c] - src[3 * i + c]);
+  }
+  out[3 * M] = out[0]; out[3 * M + 1] = out[1]; out[3 * M + 2] = out[2];
+  return out;
+}
+
 // One ring's points before the view: x, y, z per point (the last repeats the first).
 function ringPre(k, N, M, time, ctx) {
   const p = ctx.p, u = N > 1 ? k / (N - 1) : 0;
@@ -1287,7 +1314,10 @@ function look3d(p, time, M) {
   const ang = { pitch: vm.pitch, yaw: vm.yaw, roll: vm.roll, rot: p.rotate + p.spin * time };
   const rings = [];
   for (let k = 0; k < N; k++) {
-    rings.push({ pre: ringPre(k, N, M, time, ctx), rgb: color(colourU(p, k, N)), w: fadeWeight(p, k, N, time), ang });
+    // Dots: the ring's points spaced evenly along it (resampleRing), as Houdini's Resample does,
+    // rather than at the parameter steps, which bunch wherever the maths does (Hopf, loops).
+    const pre = p.draw === "dots" ? resampleRing(ringPre(k, N, dotOversample(M) * M, time, ctx), M) : ringPre(k, N, M, time, ctx);
+    rings.push({ pre, rgb: color(colourU(p, k, N)), w: fadeWeight(p, k, N, time), ang });
   }
   return {
     rings, time,

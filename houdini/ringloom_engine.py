@@ -474,6 +474,37 @@ HOPF_SCALE = 0.45
 LOXO_SCALE = 0.7  # Loxodromic spiral poles at +-LOXO_SCALE (page explains)
 
 
+def dot_oversample(M):
+    """How many times finer a ring is sampled before its dots are spaced (page dotOversample)."""
+    return max(4, min(16, jsround(2880 / M)))
+
+
+def resample_ring(src, M):
+    """M points evenly spaced by distance along the closed polyline src ((n + 1, 3), last point
+    repeating the first), the first kept, the last repeating it: the page's resampleRing, with the
+    same running sums and the same segment for each target distance."""
+    n = src.shape[0] - 1
+    cum = np.zeros(n + 1)
+    for i in range(n):  # a plain running sum, in the page's order, for identical rounding
+        d = src[i + 1] - src[i]
+        cum[i + 1] = cum[i] + math.sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2])
+    total = cum[n]
+    out = np.zeros((M + 1, 3))
+    if not total > 0:
+        out[:] = src[0]
+        return out
+    i = 0
+    for j in range(M):
+        s = total * j / M
+        while i + 1 < n and cum[i + 1] <= s:
+            i += 1
+        seg = cum[i + 1] - cum[i]
+        t = (s - cum[i]) / seg if seg > 0 else 0.0
+        out[j] = src[i] + t * (src[i + 1] - src[i])
+    out[M] = out[0]
+    return out
+
+
 def ring_world(p, k, N, M, time, mats):
     """One ring's points before the view rotation, shape (M + 1, 3); the last point repeats the first."""
     u = k / (N - 1) if N > 1 else 0
@@ -642,7 +673,10 @@ def look3d(p, time, M=None):
     M = M or jsround(p["res"])
     mats = linear_mats(p, N, time) if p["gen"] in ("cover", "again", "blend") else None
     color = make_color_fn(p, time)
-    pre = np.stack([ring_world(p, k, N, M, time, mats) for k in range(N)])
+    if p["draw"] == "dots":  # dots spaced evenly along each ring (page look3d / resampleRing)
+        pre = np.stack([resample_ring(ring_world(p, k, N, dot_oversample(M) * M, time, mats), M) for k in range(N)])
+    else:
+        pre = np.stack([ring_world(p, k, N, M, time, mats) for k in range(N)])
     rgb = np.array([color(colour_u(p, k, N)) for k in range(N)], dtype=np.float64)
     m = jsround(p["mirror"])
     return {

@@ -80,7 +80,9 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
     point taking its own arc, because points whose start and end lie opposite each other across
     the centre could pick different ways round and tear a ring apart.
 - **Draw: Lines or Dots.** Dots draws each ring's points with nothing between them, at Dot size;
-  Smoothness is then the dots per ring, so lower it to space them out. Colour, fade, glow, trails,
+  Smoothness is then the dots per ring, so lower it to space them out. The dots are spaced evenly
+  along each ring by distance (as Houdini's Resample does), in 3D before the view, rather than
+  at the ring's parameter steps, which bunch wherever the maths does (57x on a Hopf ring). Colour, fade, glow, trails,
   kaleidoscope and light blend apply as for lines. A blend between a lines look and a dots look
   fades one into the other. SVG export writes the dots; the Houdini node makes points with
   `pscale` (and no polylines) for a look drawn as dots, switching halfway through such a blend.

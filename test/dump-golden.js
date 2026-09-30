@@ -117,6 +117,9 @@ looks.push(["strip 3 twists star", Object.assign(t.defaults(), { gen: "strip", b
 for (const ease of [0.3, 0.8, 2.6]) looks.push([`blend spacing ${ease}`, Object.assign(t.defaults(), { gen: "blend", rings: 17, ease })]);
 // Drawn as dots (the look values ride along in frameOut), with kaleidoscope copies and fade.
 looks.push(["dots", Object.assign(t.defaults(), { gen: "slinky", rings: 14, draw: "dots", dotSize: 4.5, res: 96, mirror: 3, fade: 0.5 })]);
+// Dots resampled evenly along rings whose parameter bunches (Hopf near the pole, a star's corners).
+looks.push(["dots hopf", Object.assign(t.defaults(), { gen: "hopf", hopfLat: 120, hopfSpread: 60, rings: 9, draw: "dots", res: 96 })]);
+looks.push(["dots star 360", Object.assign(t.defaults(), { gen: "again", base: "star", rings: 10, draw: "dots", res: 360, wobble: 0.1 })]);
 looks.push(["roll+mirror", Object.assign(t.defaults(), { gen: "slinky", roll: 75, pitch: 30, mirror: 5, rings: 20 })]);
 
 const cases = [];
