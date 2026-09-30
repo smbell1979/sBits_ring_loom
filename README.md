@@ -16,6 +16,14 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
     projected: exact circles, every pair linked once. Latitude, Latitude spread (0 keeps them on
     one torus) and Turns place the points; the base shape and Wobble are ignored. Latitude stops
     at 150, where the biggest rings are about 3x the frame.
+  - *Spirograph* - a pen on a wheel rolling inside or outside each ring (hypo/epitrochoid). Points
+    sets the petals, Pen the pen's distance from the wheel centre (0 a circle, 1 sharp cusps, more
+    loops), Pen change morphs it from ring to ring. The wheel is always a whole fraction of the ring,
+    so every curve closes. Draws its own curves: the base shape is ignored.
+  - *Pendulum wave* - rings of the base shape, each swinging about one axis; ring k makes
+    Swings + k swings per Period, so they fall out of step into waves and snap back in line at the
+    end of every period (a seamless loop of Period seconds at Time speed 1). Axis tilt 0 tips them
+    over like gimbals, 90 turns them in the picture. Drift is ignored.
   - *Two-ellipse blend* - interpolates a start ellipse into an end ellipse.
   - *Two Lanes (measured)* - 31 ellipses measured from the Two Lanes "Searching" cover. The two
     outermost are near-circles whose measured angles were noise, so they follow the fitted trend
@@ -249,9 +257,11 @@ reordering randomized parameters changes what every seed produces. Randomize pic
 palette, so adding a palette changes the colour a seed number gives (only its colour: the palette
 is one random draw). Saved looks, sequences and the default store the palette by name, so they
 never change.
-Hopf fibration and Superformula were added without disturbing old seeds: the original draw
-still picks among the original generators and base shapes, and a second random stream gives the
-new ones their fair share (1 in 7) and draws the superformula settings. Measured on 20,000 seeds:
-79% come out exactly as before; the rest became Hopf (14%) or Superformula (7%) looks. Mutate is
-unchanged for every look. New generators or base shapes should follow the same pattern
+Hopf fibration, Superformula, Spirograph and Pendulum wave were added without disturbing old
+seeds: the original draw still picks among the original generators and base shapes, and a second
+random stream gives the new ones their fair share (1 in 9 each for generators, 1 in 7 for the base
+shape) and draws the superformula settings. Measured on 20,000 seeds against the release before
+any were added: 62% come out exactly as before; the rest became looks on a new generator (11% each)
+or a Superformula (5%). Adding Spirograph and Pendulum wave on their own left 78% of seeds as they
+were a release earlier. Mutate is unchanged for every look. New generators or base shapes should follow the same pattern
 (`pickKeepingSeeds`, `onBase`).

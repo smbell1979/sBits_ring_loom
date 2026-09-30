@@ -92,7 +92,15 @@ looks.push(["hopf past both caps", Object.assign(t.defaults(), { gen: "hopf", ri
 for (const [m, n1, n2, n3, gen] of [[6, 1, 7, 8, "again"], [5, 2, 7, 7, "sphere"], [7, 1.2, 4, 11, "again"], [3, 0.4, 20, 0.2, "slinky"], [0, 2, 3, 9, "cover"]]) {
   looks.push([`superformula ${m} ${n1} ${n2} ${n3} ${gen}`, Object.assign(t.defaults(), { gen, base: "super", sfM: m, sfN1: n1, sfN2: n2, sfN3: n3, rings: 12, wobble: 0.08, pitch: 20 })]);
 }
-looks.push(["roll+mirror",Object.assign(t.defaults(), { gen: "slinky", roll: 75, pitch: 30, mirror: 5, rings: 20 })]);
+// Spirograph: both wheels, pen below / on / past the rim, pen change either way, twist, shrink.
+for (const [spMode, spLobes, spPen, spPenSpread, spTwist, spShrink] of [["hypo", 5, 0.8, 0.8, 1.5, 0.3], ["epi", 7, 1, -1.2, -4, 0], ["hypo", 3, 1.8, 2, 12, 0.7], ["epi", 12, 0.3, 0, 0, 0.5]]) {
+  looks.push([`spirograph ${spMode} ${spLobes} ${spPen}`, Object.assign(t.defaults(), { gen: "spiro", spMode, spLobes, spPen, spPenSpread, spTwist, spShrink, rings: 13, drift: 0.6, wobble: 0.05 })]);
+}
+// Pendulum wave: gimbal swing on a star, in-picture swing on a superformula, and a short period.
+looks.push(["pendulum star", Object.assign(t.defaults(), { gen: "pendulum", base: "star", sides: 5, rings: 15, pwSwing: 70, pitch: 25, persp: 0.5 })]);
+looks.push(["pendulum axis 90 superformula", Object.assign(t.defaults(), { gen: "pendulum", base: "super", sfM: 4, rings: 12, pwAxis: 90, pwSwings: 3, pwShrink: 0.2 })]);
+looks.push(["pendulum short period", Object.assign(t.defaults(), { gen: "pendulum", rings: 20, pwPeriod: 5, pwSwings: 11, pwSwing: 140, pwAxis: 35, yaw: 30 })]);
+looks.push(["roll+mirror", Object.assign(t.defaults(), { gen: "slinky", roll: 75, pitch: 30, mirror: 5, rings: 20 })]);
 
 const cases = [];
 for (const [name, p] of looks) {
@@ -139,7 +147,8 @@ const blendPairs = [
   ["swirl", flat({ gen: "again", rings: 24, base: "star", sides: 5 }), flat({ gen: "cover", rings: 19 }), { swirl: 270, ease: "smooth" }],
   ["swirl zoomed", flat({ gen: "blend", rings: 25, zoom: 1.6 }), flat({ gen: "blend", rings: 25, zoom: 1.6, phase: -90 }), { swirl: -405 }],
   ["hopf -> superformula", flat({ gen: "hopf", rings: 16, pitch: 30, persp: 0.4 }), flat({ gen: "again", rings: 24, base: "super", sfM: 7, sfN1: 1.2, sfN2: 4, sfN3: 11 }), { stagger: 0.3, ease: "smooth" }],
-  ["all together",flat({ gen: "harmono", rings: 12, roll: 20, mirror: 4 }), flat({ gen: "cover", rings: 19, roll: -100 }), { turns: 1, stagger: -0.55, swirl: 180, ease: "out" }],
+  ["spirograph -> pendulum", flat({ gen: "spiro", rings: 20, spMode: "epi", spLobes: 6 }), flat({ gen: "pendulum", rings: 14, base: "polygon", sides: 4, pitch: 30 }), { stagger: -0.3, swirl: 90 }],
+  ["all together", flat({ gen: "harmono", rings: 12, roll: 20, mirror: 4 }), flat({ gen: "cover", rings: 19, roll: -100 }), { turns: 1, stagger: -0.55, swirl: 180, ease: "out" }],
 ];
 const blends = [];
 for (const [name, a, b, how = {}] of blendPairs) {

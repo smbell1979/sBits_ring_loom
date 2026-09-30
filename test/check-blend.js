@@ -598,21 +598,81 @@ setTimeout(() => {
     check(`Hopf fibres are true circles, each pair linked once (${name})`, worst < 1e-9 && unlinked === 0, `worst off-circle ${worst.toExponential(1)}, ${unlinked} of ${pairs} not linked once`);
   }
 
-  // Seeds: adding Hopf and Superformula must leave every seed that still picks an original
-  // generator and base exactly as before. The digest is of the previous release's randomize()
-  // output for those seeds (settings it had, seeds 131..39300), recorded from that version.
+  // Spirograph: judged by what rolling a wheel must give, measured on the drawn ring, not by
+  // re-deriving the formula: Points outermost tips (radius maxima) round the curve; sharp cusps
+  // (the pen stopping dead) exactly when the pen sits on the wheel's rim (Pen 1) and nowhere
+  // otherwise; a plain circle at Pen 0; and the largest ring touching the unit circle.
   {
-    const NEW = new Set(["sfM", "sfN1", "sfN2", "sfN3", "hopfLat", "hopfSpread", "hopfTurns"]);
-    let h = 2166136261, n = 0, hopf = 0, sup = 0;
+    const spiroRing = (o, k = 0, N = 5) => { const p = Object.assign(t.defaults(), { gen: "spiro", spPenSpread: 0, spTwist: 0, spShrink: 0, drift: 0, wobble: 0 }, o);
+      const f = t.ringPre(k, N, 720, 0, { p }); return [...Array(720).keys()].map(j => [f[3 * j], f[3 * j + 1]]); };
+    const tips = pts => { const r = pts.map(q => Math.hypot(q[0], q[1])), L = r.length; let c = 0;
+      for (let j = 0; j < L; j++) if (r[j] > r[(j + L - 1) % L] + 1e-12 && r[j] >= r[(j + 1) % L]) c++; return c; };
+    // A cusp is where the pen reverses: the path turns back by more than 120 degrees at one sample.
+    // (With 720 samples every cusp of 3, 5 or 8 points lands on a sample.) An earlier version
+    // looked for a near-zero step instead, which missed the sharper cusps of 8 points.
+    const cusps = pts => { const L = pts.length; let c = 0;
+      for (let j = 0; j < L; j++) {
+        const a = pts[(j + L - 1) % L], b = pts[j], d = pts[(j + 1) % L];
+        const ux = b[0] - a[0], uy = b[1] - a[1], vx = d[0] - b[0], vy = d[1] - b[1];
+        if ((ux * vx + uy * vy) / (Math.hypot(ux, uy) * Math.hypot(vx, vy)) < -0.5) c++;
+      }
+      return c; };
+    const bad = [];
+    for (const spMode of ["hypo", "epi"]) for (const n of [3, 5, 8]) for (const pen of [0.5, 1, 1.8]) {
+      const pts = spiroRing({ spMode, spLobes: n, spPen: pen });
+      const tp = tips(pts), cp = cusps(pts), wantCusps = pen === 1 ? n : 0;
+      if (tp !== n || cp !== wantCusps) bad.push(`${spMode} ${n} pen ${pen}: ${tp} tips, ${cp} cusps`);
+    }
+    check("spirograph curves have Points tips, and cusps only with the pen on the rim", bad.length === 0, bad.join("; ") || "both wheels, 3/5/8 points, pen 0.5/1/1.8");
+    const circ = spiroRing({ spPen: 0 }).map(q => Math.hypot(q[0], q[1]));
+    check("spirograph at Pen 0 is a plain circle", Math.max(...circ) - Math.min(...circ) < 1e-12);
+    const reach = o => { let m = 0; for (let k = 0; k < 12; k++) for (const q of spiroRing(Object.assign({ spTwist: 7 }, o), k, 12)) m = Math.max(m, Math.hypot(q[0], q[1])); return m; };
+    const reaches = [{}, { spMode: "epi", spPen: 1.4, spPenSpread: -1.5 }, { spLobes: 3, spPen: 0.2, spPenSpread: 2 }].map(reach);
+    check("spirograph's largest ring touches the unit circle", reaches.every(m => m > 0.995 && m <= 1 + 1e-9), reaches.map(m => m.toFixed(4)).join(" "));
+  }
+
+  // Pendulum wave: each ring's tilt read back from the drawn points (the top of a circle ring
+  // tips toward the viewer as it swings about the x axis). Ring k must swing exactly Swings + k
+  // times per Period (counted as sign changes of its tilt), reach Swing degrees, and every ring
+  // must be back level and in line after a whole period -- and not in between.
+  {
+    const P = 23, s = 5, amp = 50, N = 9;
+    const pw = Object.assign(t.defaults(), { gen: "pendulum", rings: N, pwPeriod: P, pwSwings: s, pwSwing: amp, pwAxis: 0, pwShrink: 0.5, wobble: 0 });
+    const tilt = (k, time) => { const f = t.ringPre(k, N, 360, time, { p: pw }), j = 90; return Math.atan2(f[3 * j + 2], f[3 * j + 1]) / D2R; };
+    const bad = [];
+    for (let k = 0; k < N; k++) {
+      let flips = 0, peak = 0, prev = tilt(k, 1e-6);
+      for (let i = 1; i < 6000; i++) { const a = tilt(k, P * i / 6000); if ((a > 0) !== (prev > 0)) flips++; prev = a; peak = Math.max(peak, Math.abs(a)); }
+      if (flips !== 2 * (s + k) - 1 || Math.abs(peak - amp) > 0.1) bad.push(`ring ${k}: ${flips} flips (want ${2 * (s + k) - 1}), peak ${peak.toFixed(2)}`);
+    }
+    check("pendulum rings swing Swings + k times per period, Swing degrees each way", bad.length === 0, bad.join("; ") || `${N} rings over one period`);
+    const frameAt = time => [...Array(N).keys()].map(k => t.ringPre(k, N, 180, time, { p: pw }));
+    const gap = (a, b) => Math.max(...a.map((r, k) => Math.max(...r.map((v, i) => Math.abs(v - b[k][i])))));
+    const f0 = frameAt(0);
+    check("pendulum rings are back in line after one and two periods, and not in between",
+      gap(f0, frameAt(P)) < 1e-9 && gap(f0, frameAt(2 * P)) < 1e-9 && gap(f0, frameAt(P / 3)) > 0.1,
+      `after 1: ${gap(f0, frameAt(P)).toExponential(1)}, after 2: ${gap(f0, frameAt(2 * P)).toExponential(1)}, at a third: ${gap(f0, frameAt(P / 3)).toFixed(2)}`);
+  }
+
+  // Seeds: adding generators and base shapes must leave every seed that still picks an original
+  // generator and base exactly as before. The digest is of randomize() output from the release
+  // before any were added (1a31786) for those seeds (only the settings it had; seeds 131..39300),
+  // recorded from that version. Adding another generator or base changes which seeds stay, so
+  // re-record it then, from that same release, and add the new settings to NEW.
+  {
+    const NEW = new Set(["sfM", "sfN1", "sfN2", "sfN3", "hopfLat", "hopfSpread", "hopfTurns",
+      "spMode", "spLobes", "spPen", "spPenSpread", "spTwist", "spShrink", "pwPeriod", "pwSwings", "pwSwing", "pwAxis", "pwShrink"]);
+    const ORIGINAL = new Set(["cover", "sphere", "again", "blend", "harmono", "slinky"]);
+    let h = 2166136261, n = 0, added = 0, sup = 0;
     for (let k = 1; k <= 300; k++) {
       const x = t.randomize(k * 131);
-      if (x.gen === "hopf") hopf++; else if (x.base === "super") sup++;
-      if (x.gen === "hopf" || x.base === "super") continue;
+      if (!ORIGINAL.has(x.gen)) added++; else if (x.base === "super") sup++;
+      if (!ORIGINAL.has(x.gen) || x.base === "super") continue;
       n++;
       const s = JSON.stringify(Object.keys(x).filter(q => !NEW.has(q)).map(q => [q, x[q]]));
       for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0;
     }
-    check("seeds on an original generator and base come out as before", h === 4242722536 && n === 232, `${n} seeds, digest ${h}; ${hopf} now Hopf, ${sup} now Superformula`);
+    check("seeds on an original generator and base come out as before", h === 777834169 && n === 183, `${n} seeds, digest ${h}; ${added} now on a new generator, ${sup} now Superformula`);
   }
 
   t.seq.savedKey = t.seqKey();

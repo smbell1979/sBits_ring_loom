@@ -66,7 +66,7 @@ PALETTES = {
     "sunset": ["#7b2ff7", "#f107a3", "#ff6a00", "#ffd000"],
     "custom": None,
 }
-GENS = ["cover", "sphere", "again", "blend", "harmono", "slinky", "hopf"]
+GENS = ["cover", "sphere", "again", "blend", "harmono", "slinky", "hopf", "spiro", "pendulum"]
 BASES = ["circle", "polygon", "star", "flower", "heart", "infinity", "super"]
 
 # (id, type, default, min, max) for numbers; (id, type, default, options) for menus. Order and
@@ -114,6 +114,17 @@ SCHEMA = [
     ("hopfLat", "range", 70, 5, 150),
     ("hopfSpread", "range", 60, 0, 150),
     ("hopfTurns", "range", 1, 0.1, 4),
+    ("spMode", "select", "hypo", ["hypo", "epi"]),
+    ("spLobes", "range", 5, 2, 16),
+    ("spPen", "range", 0.8, 0, 3),
+    ("spPenSpread", "range", 0.8, -2, 2),
+    ("spTwist", "range", 1.5, -30, 30),
+    ("spShrink", "range", 0.3, 0, 1),
+    ("pwPeriod", "range", 30, 4, 120),
+    ("pwSwings", "range", 8, 1, 60),
+    ("pwSwing", "range", 50, 0, 180),
+    ("pwAxis", "range", 0, 0, 90),
+    ("pwShrink", "range", 0.55, 0, 1),
     ("speed", "range", 1, 0, 3),
     ("drift", "range", 0.3, 0, 2),
     ("rotate", "range", 0, -180, 180),
@@ -484,6 +495,30 @@ def ring_world(p, k, N, M, time, mats):
         az = TAU * p["hopfTurns"] * k / N + p["drift"] * time * 0.4
         d = HOPF_SCALE / (1 - hs * np.sin(th + az))
         x, y, z = hc * c * d, hc * s * d, hs * np.cos(th + az) * d
+    elif g == "spiro":
+        # Pen on a wheel of radius 1/n rolling inside (hypo) or outside (epi) the unit ring; every
+        # ring divided by the largest reach so the biggest touches the unit circle (page ringPre).
+        n = jsround(p["spLobes"])
+        sg = 1 if p["spMode"] == "epi" else -1
+        pen = lambda v: max(0.0, p["spPen"] + p["spPenSpread"] * (v - 0.5))
+        reach = 1 + sg / n + max(pen(0), pen(1)) / n
+        R = 1 + sg / n
+        d = pen(u) / n
+        S = (1 - p["spShrink"] * u) / reach
+        a = p["spTwist"] * k * D2R
+        ca, sa = math.cos(a), math.sin(a)
+        w = R * n * th + p["drift"] * time * 0.8
+        qx = (R * c - sg * d * np.cos(w)) * S * rr
+        qy = (R * s - d * np.sin(w)) * S * rr
+        x, y, z = ca * qx - sa * qy, sa * qx + ca * qy, np.zeros_like(qx)
+    elif g == "pendulum":
+        # Ring k swings Swings + k times per Period, so all are level and in line at every whole
+        # period (page ringPre).
+        ang = p["pwSwing"] * math.sin(TAU * (jsround(p["pwSwings"]) + k) * time / p["pwPeriod"]) * D2R
+        t = p["pwAxis"] * D2R
+        sc = 1 - p["pwShrink"] * u
+        R = [v * sc for v in rot_axis([math.cos(t), 0, math.sin(t)], ang)]
+        x, y, z = R[0] * px + R[1] * py, R[3] * px + R[4] * py, R[6] * px + R[7] * py
     else:  # slinky
         # One full turn: spaced 360/N, so the last ring stops a gap short of the first (page ringPre).
         ph = (TAU * k / N if p["closed"] else TAU * p["loops"] * u) + p["drift"] * time * 0.4

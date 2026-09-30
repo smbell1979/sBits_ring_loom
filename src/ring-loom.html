@@ -420,6 +420,7 @@ const COVER_SCALE = 1.05;
 const GENS = {
   cover: "Two Lanes (measured)", sphere: "Sphere spin", again: "Transform again",
   blend: "Two-ellipse blend", harmono: "Harmonograph", slinky: "Slinky", hopf: "Hopf fibration",
+  spiro: "Spirograph", pendulum: "Pendulum wave",
 };
 const BASES = {
   circle: "Circle / squircle", polygon: "Polygon", star: "Star", flower: "Flower",
@@ -452,11 +453,12 @@ const PALETTES = {
 const paletteLabels =Object.fromEntries(Object.entries(PALETTES).map(([k, v]) => [k, v.label]));
 
 // idle(p): why a control has no effect right now (shown dimmed with this as a tooltip), or null.
-const FLAT_GENS = new Set(["cover", "again", "blend", "harmono"]);
-// Harmonograph and Hopf fibration draw their own curves (Lissajous loops; fibre circles), so the
-// base shape and its settings do nothing there.
+const FLAT_GENS = new Set(["cover", "again", "blend", "harmono", "spiro"]);
+// Harmonograph, Hopf fibration and Spirograph draw their own curves (Lissajous loops; fibre
+// circles; rolling-circle curves), so the base shape and its settings do nothing there.
 const IDLE_HARMONO = p => p.gen === "harmono" ? "Harmonograph draws its own curves, so the base shape is ignored."
-  : p.gen === "hopf" ? "Hopf fibration rings are exact circles (the fibres), so the base shape is ignored." : null;
+  : p.gen === "hopf" ? "Hopf fibration rings are exact circles (the fibres), so the base shape is ignored."
+  : p.gen === "spiro" ? "Spirograph draws its own curves, so the base shape is ignored." : null;
 // Wobble would bend the Hopf fibres out of true circles, which is the point of that generator.
 const IDLE_HOPF_WOBBLE = p => p.gen === "hopf" ? "Hopf fibration keeps its rings exact circles, so Wobble is ignored." : null;
 const IDLE_NO_WOBBLE = p => IDLE_HOPF_WOBBLE(p) || (p.wobble === 0 ? "No effect while Wobble is 0." : null);
@@ -540,10 +542,36 @@ const SCHEMA = [
   { id: "hopfTurns", gen: "hopf", label: "Turns", type: "range", min: 0.1, max: 4, step: 0.01, def: 1, r: [0.5, 2],
     tip: "How many times the rings go round the sphere, spaced by the ring count." },
 
+  // Spirograph (ringPre): a pen on a wheel rolling inside (or outside) a fixed ring, the wheel a
+  // whole fraction of the ring's size so every curve closes after one trip round.
+  { id: "spMode", gen: "spiro", label: "Wheel", type: "select", def: "hypo", options: { hypo: "Inside the ring", epi: "Outside the ring" },
+    tip: "Where the wheel rolls: inside the ring (pointed stars and loops, like a toy Spirograph) or round the outside (rounded petals)." },
+  { id: "spLobes", gen: "spiro", label: "Points", type: "range", min: 2, max: 16, step: 1, def: 5, r: [3, 11],
+    tip: "How many points or petals each curve has." },
+  { id: "spPen", gen: "spiro", label: "Pen", type: "range", min: 0, max: 3, step: 0.01, def: 0.8, r: [0.3, 2],
+    tip: "The pen's distance from the wheel's centre, in wheel radii: 0 draws a plain circle, below 1 rounded, 1 sharp points, above 1 loops." },
+  { id: "spPenSpread", gen: "spiro", label: "Pen change", type: "range", min: -2, max: 2, step: 0.01, def: 0.8, r: [-1.5, 1.5],
+    tip: "How much the pen moves from the first ring to the last, so the curves morph from ring to ring." },
+  { id: "spTwist", gen: "spiro", label: "Turn / ring", type: "range", min: -30, max: 30, step: 0.05, def: 1.5, r: [-8, 8] },
+  { id: "spShrink", gen: "spiro", label: "Shrink", type: "range", min: 0, max: 1, step: 0.01, def: 0.3, r: [0, 0.7] },
+
+  // Pendulum wave (ringPre): every ring swings about one axis, ring k making Swings + k swings per
+  // Period, so they fall out of step into waves and all line up again at the end of each period.
+  { id: "pwPeriod", gen: "pendulum", label: "Period", type: "range", min: 4, max: 120, step: 0.5, def: 30, r: [15, 60],
+    tip: "Seconds until every ring is back in line (at Time speed 1)." },
+  { id: "pwSwings", gen: "pendulum", label: "Swings", type: "range", min: 1, max: 60, step: 1, def: 8, r: [4, 20],
+    tip: "Swings the first ring makes per period; each next ring makes one more." },
+  { id: "pwSwing", gen: "pendulum", label: "Swing °", type: "range", min: 0, max: 180, step: 0.5, def: 50, r: [20, 90],
+    tip: "How far each ring swings either way." },
+  { id: "pwAxis", gen: "pendulum", label: "Axis tilt", type: "range", min: 0, max: 90, step: 0.5, def: 0, r: [0, 60],
+    tip: "0 swings the rings over like gimbals; 90 turns them flat in the picture, which shows only on shapes that aren't circles." },
+  { id: "pwShrink", gen: "pendulum", label: "Shrink", type: "range", min: 0, max: 1, step: 0.01, def: 0.55, r: [0.2, 0.8] },
+
   { id: "speed", group: "motion", label: "Time speed", type: "range", min: 0, max: 3, step: 0.01, def: 1, r: null },
   { id: "drift", group: "motion", label: "Drift", type: "range", min: 0, max: 2, step: 0.01, def: 0.3, r: [0.1, 1],
     // In Transform again, Drift only wobbles the turn per ring, which One full turn holds exact.
-    idle: p => p.gen === "again" && p.closed ? "One full turn keeps Transform again's turn per ring exact, so Drift has nothing to move here." : null },
+    idle: p => p.gen === "again" && p.closed ? "One full turn keeps Transform again's turn per ring exact, so Drift has nothing to move here."
+      : p.gen === "pendulum" ? "Pendulum wave moves on its own clock (Period), so Drift is ignored." : null },
   { id: "rotate", group: "motion", label: "Rotate", type: "range", min: -180, max: 180, step: 0.5, def: 0, r: [-180, 180], rp: 0.4 },
   { id: "spin", group: "motion", label: "Spin °/s", type: "range", min: -60, max: 60, step: 0.5, def: 0, r: [-15, 15], rp: 0.4 },
   { id: "yaw", group: "motion", label: "View yaw", type: "range", min: -180, max: 180, step: 0.5, def: 0, r: [-40, 40], rp: 0.3 },
@@ -623,6 +651,8 @@ const PRESETS = {
   "Heart tunnel": { gen: "again", base: "heart", rings: 56, squashA: 0.955, stretchA: 0.965, turn: 7, drift: 0.8, pitch: 30, persp: 0.6, palette: "dusk", glow: 9, trails: 0.4 },
   "Triangle twist": { gen: "sphere", base: "polygon", sides: 3, rings: 60, alpha: 48, sweep: 220, drift: 0.45, palette: "ice", glow: 7, width: 0.9 },
   "Hopf links": { gen: "hopf", rings: 48, hopfLat: 80, hopfSpread: 70, hopfTurns: 1, drift: 0.4, pitch: 35, yaw: 20, persp: 0.4, palette: "spectrum", spread: 0.9, glow: 7, width: 0.9 },
+  "Spirograph": { gen: "spiro", rings: 40, spMode: "hypo", spLobes: 7, spPen: 1.2, spPenSpread: 1.2, spTwist: 2, spShrink: 0.4, drift: 0.4, palette: "vapor", glow: 7, width: 0.9, alphaL: 0.75 },
+  "Pendulum wave": { gen: "pendulum", rings: 24, pwPeriod: 30, pwSwings: 6, pwSwing: 60, pwShrink: 0.6, base: "polygon", sides: 6, pitch: 20, persp: 0.4, palette: "aurora", glow: 7, width: 1 },
   "Superformula bloom": { gen: "again", base: "super", sfM: 6, sfN1: 0.9, sfN2: 6, sfN3: 9, rings: 34, squashA: 0.94, stretchA: 0.99, turn: 4, drift: 0.5, palette: "ember", glow: 6, width: 0.9, alphaL: 0.7 },
 };
 // Opening look: Scott's pick -- seed 33510, then view nudged (yaw 9, pitch -3) and trails 0.88.
@@ -696,7 +726,8 @@ function randomHex(rnd) {
 // Generators and base shapes Randomize knew before any were added (the first entries of GENS and
 // BASES). Picking from the longer lists directly re-buckets the draw and changed the generator of
 // 49% of seeds (measured, 2002 seeds); instead the old draw picks among these, and the side stream
-// hands each later addition its fair share (1 in 7 for one addition), so the rest are unchanged.
+// hands each later addition its fair share (1 in 9 each, with three added), so the rest are
+// unchanged. Each addition does take its share from the seeds still on the originals.
 const SEED_GENS = 6, SEED_BASES = 6;
 function pickKeepingSeeds(keys, nOld, r, side) {
   const nNew = keys.length - nOld, v = side();
@@ -723,6 +754,9 @@ function randomize(sd) {
     p[s.id] = snap(s, lerp(s.r[0], s.r[1], rnd()));
   }
   p.additive = rnd() < 0.85;
+  // Menus aren't randomized, except the Spirograph's wheel (a big part of its look); only
+  // Spirograph seeds draw it, and those are all new, so no older seed moves.
+  if (p.gen === "spiro") p.spMode = rnd() < 0.5 ? "hypo" : "epi";
   // Base-shape settings added later draw from the side stream too, so seeds whose base doesn't
   // use them come out exactly as before.
   for (const s of SCHEMA) if (s.type === "range" && s.r && s.onBase === p.base) p[s.id] = snap(s, lerp(s.r[0], s.r[1], side()));
@@ -979,7 +1013,7 @@ function ringPre(k, N, M, time, ctx) {
   const out = new Float64Array(3 * (M + 1));
   const e = 2 / p.superexp, lobes = Math.round(p.lobes), wob = p.wobble;
   const wph = TAU * p.ringPhase * k + p.wobbleSpeed * time;
-  let lin = null, R3 = null, harm = null, sl = null, hopf = null;
+  let lin = null, R3 = null, harm = null, sl = null, hopf = null, spiro = null;
   if (ctx.mats) lin = ctx.mats[k];
   else if (p.gen === "hopf") {
     // Ring k is the Hopf fibre over one point of the 2-sphere: latitude (polar angle from the
@@ -992,6 +1026,23 @@ function ringPre(k, N, M, time, ctx) {
     // bent the fibres out of true circles (measured: from about 157).
     const lat = clamp(p.hopfLat + p.hopfSpread * (u - 0.5), 3, 150) * D2R / 2;
     hopf = { c: Math.cos(lat), s: Math.sin(lat), az: TAU * p.hopfTurns * k / N + p.drift * time * 0.4 };
+  } else if (p.gen === "spiro") {
+    // Wheel of radius 1/n rolling inside (hypotrochoid) or outside (epitrochoid) a ring of radius
+    // 1, pen at pen/n from the wheel's centre: n points, closed after one trip round. The pen
+    // moves linearly across the rings, so the largest reach is at the first or last ring; every
+    // ring is divided by that one reach, so the biggest just touches the unit circle and the rest
+    // keep their true size relative to it. Drift turns the pen round the wheel (the curves morph).
+    const n = Math.round(p.spLobes), sg = p.spMode === "epi" ? 1 : -1;
+    const pen = v => Math.max(0, p.spPen + p.spPenSpread * (v - 0.5));
+    const reach = 1 + sg / n + Math.max(pen(0), pen(1)) / n;
+    const a = p.spTwist * k * D2R;
+    spiro = { n, sg, d: pen(u) / n, R: 1 + sg / n, S: (1 - p.spShrink * u) / reach, ca: Math.cos(a), sa: Math.sin(a), ph: p.drift * time * 0.8 };
+  } else if (p.gen === "pendulum") {
+    // Ring k swings Swings + k times per Period: all start level and in line at time 0, and are in
+    // line again at every whole period, since each has then made a whole number of swings.
+    const ang = p.pwSwing * Math.sin(TAU * (Math.round(p.pwSwings) + k) * time / p.pwPeriod) * D2R;
+    const t = p.pwAxis * D2R, sc = 1 - p.pwShrink * u;
+    R3 = rotAxis([Math.cos(t), 0, Math.sin(t)], ang).map(v => v * sc);
   }
   else if (p.gen === "sphere") {
     const a = p.alpha * D2R;
@@ -1014,6 +1065,13 @@ function ringPre(k, N, M, time, ctx) {
     if (lin) { x = lin[0] * px + lin[1] * py; y = lin[2] * px + lin[3] * py; z = 0; }
     else if (R3) { x = R3[0] * px + R3[1] * py; y = R3[3] * px + R3[4] * py; z = R3[6] * px + R3[7] * py; }
     else if (harm) { x = harm.A * Math.sin(p.fx * th + harm.px) * rr; y = harm.A * Math.sin(p.fy * th + harm.py) * rr; z = 0; }
+    else if (spiro) {
+      // Wheel centre at angle th, radius R; the pen turns (R / wheel radius) times as fast, the
+      // other way round for a wheel inside. Epi: pen trails outward (minus); hypo: plus.
+      const w = spiro.R * spiro.n * th + spiro.ph;
+      const qx = (spiro.R * c - spiro.sg * spiro.d * Math.cos(w)) * spiro.S * rr, qy = (spiro.R * s - spiro.d * Math.sin(w)) * spiro.S * rr;
+      x = spiro.ca * qx - spiro.sa * qy; y = spiro.sa * qx + spiro.ca * qy; z = 0;
+    }
     else if (hopf) {
       const d = HOPF_SCALE / (1 - hopf.s * Math.sin(th + hopf.az));  // >= 0.034 at latitude 150
       x = hopf.c * c * d; y = hopf.c * s * d; z = hopf.s * Math.cos(th + hopf.az) * d;
