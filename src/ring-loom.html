@@ -74,11 +74,15 @@ body { margin: 0; background: var(--ink); color: var(--fg); font-family: var(--u
 /* Controls: one scrolling column, or two side by side (each scrolling on its own) once the rack
    itself is wide enough. A container query, so it follows the room the rack actually has. */
 .rack { grid-area: rack; min-width: 0; min-height: 0; container-type: inline-size; display: flex; flex-direction: column; gap: 12px; }
-.rack .rack-cols { flex: 1 1 auto; min-height: 0; }
-/* The save panel keeps its natural height up to a third of the column, then scrolls (the saved
-   list can grow); nothing in it shrinks, since a shrunk status line spilled over the heading. */
-.rack .files { flex: 0 1 auto; max-height: 34%; }
+/* The controls take their natural height (not the 100% .rack-cols has elsewhere, which left the
+   save panel a capped slice under empty space) and give up room down to 45% of the column, their
+   columns then scrolling; the save panel keeps its own height (the controls scroll anyway; shared
+   shrinking hid the saved list), grows to fill any room left, and past 45% its list scrolls.
+   Nothing inside the panel shrinks, since a shrunk status line spilled over the heading. */
+.rack .rack-cols { flex: 0 1 auto; height: auto; min-height: 45%; }
+.rack .files { flex: 1 0 auto; min-height: 0; max-height: 45%; }
 .files > * { flex-shrink: 0; }
+.files .lib { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
 .rack-cols {
   height: 100%; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px;
   overflow-y: auto; align-content: start;
@@ -294,7 +298,8 @@ textarea {
   @supports (height: 100dvh) { .stage { max-height: 50dvh; } }
   .dock { grid-template-columns: minmax(0, 1fr); }
   .rack-cols, .col, .seq-area, .files { overflow: visible; height: auto; }
-  .rack .files { max-height: none; }
+  .rack .rack-cols { min-height: 0; }
+  .files .lib { overflow: visible; }
   .hint { display: none; }
 }
 /* A phone on its side: pinned at the top, the canvas would have shrunk to a small square with the
