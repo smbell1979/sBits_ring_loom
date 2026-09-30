@@ -1225,7 +1225,7 @@ const view = document.getElementById("view");
 const vctx = view.getContext("2d");
 const lines = document.createElement("canvas");
 const lctx = lines.getContext("2d");
-// What Trails keep: the lines, with no background, fading by alpha (accumulated over frames).
+// What Trails keep: the lines over black, fading toward it (accumulated over frames; renderFrame).
 const accum = document.createElement("canvas");
 const actx = accum.getContext("2d");
 let dpr = 1, cssW = 1, cssH = 1;
@@ -1647,17 +1647,31 @@ function renderFrame(f) {
     }
   }
 
-  // Trails accumulate the lines alone, fading by alpha: with no background in the buffer, a
-  // coloured background never drifts (the old fade toward it undershot by 8 levels at Trails
-  // 0.97), and the glow can be made from the accumulated picture rather than added to it every
-  // frame -- added, it built up 1 / (1 - Trails) times (33x at 0.97) into a grey disc out to the
-  // rings' reach; derived, it can't build up, and the trail ribbons glow too.
+  // Trails accumulate the lines in their own opaque buffer over black (no background), fading
+  // toward black with a colour fill each frame, plus exactly one level off (lighten 1 then
+  // difference 1: max(v - 1, 0)), so a faded pixel always reaches 0. An alpha fade on a
+  // transparent buffer stalled at 15/255 at Trails 0.97 (4 at 0.9; measured), and adding the
+  // glow into the buffer every frame built it up 1 / (1 - Trails) times: both showed as a grey
+  // disc out to the rings' reach. The glow is a blur of the buffer, made afresh each frame, so it
+  // can't build up, and the trail ribbons glow too. Composed with "lighter" the black base adds
+  // nothing, so any background colour shows through untouched. The one case that can't work that
+  // way -- Light blend off over a coloured background, where lines must cover it -- keeps the
+  // background in the buffer, fading toward it (the same level-off pass, then lighten with the
+  // background so nothing drops below it), with the glow from this frame's lines as before.
+  const bgHex = rgbToHex(...L.bg), black = L.bg[0] === 0 && L.bg[1] === 0 && L.bg[2] === 0;
+  const light = L.additive || black, base = light ? "#000000" : bgHex;
   actx.setTransform(1, 0, 0, 1, 0, 0);
   actx.filter = "none";
-  actx.globalCompositeOperation = "destination-out";
+  actx.globalCompositeOperation = "source-over";
   actx.globalAlpha = L.trails > 0 ? 1 - L.trails : 1;
-  actx.fillStyle = "#000";
+  actx.fillStyle = base;
   actx.fillRect(0, 0, W, H);
+  if (L.trails > 0) {
+    actx.globalAlpha = 1;
+    actx.globalCompositeOperation = "lighten"; actx.fillStyle = "#010101"; actx.fillRect(0, 0, W, H);
+    actx.globalCompositeOperation = "difference"; actx.fillRect(0, 0, W, H);
+    if (!light) { actx.globalCompositeOperation = "lighten"; actx.fillStyle = base; actx.fillRect(0, 0, W, H); }
+  }
   actx.globalCompositeOperation = L.additive ? "lighter" : "source-over";
   actx.globalAlpha = 1;
   actx.drawImage(lines, 0, 0);
@@ -1665,16 +1679,16 @@ function renderFrame(f) {
   vctx.setTransform(1, 0, 0, 1, 0, 0);
   vctx.globalCompositeOperation = "source-over";
   vctx.globalAlpha = 1;
-  vctx.fillStyle = rgbToHex(...L.bg);
+  vctx.fillStyle = bgHex;
   vctx.fillRect(0, 0, W, H);
   if (L.glow > 0 && FILTER_OK) {
     vctx.globalCompositeOperation = "lighter";
     vctx.globalAlpha = 0.85;
     vctx.filter = `blur(${(L.glow * dpr).toFixed(1)}px)`;
-    vctx.drawImage(accum, 0, 0);
+    vctx.drawImage(light ? accum : lines, 0, 0);
     vctx.filter = "none";
   }
-  vctx.globalCompositeOperation = L.additive ? "lighter" : "source-over";
+  vctx.globalCompositeOperation = light ? "lighter" : "source-over";
   vctx.globalAlpha = 1;
   vctx.drawImage(accum, 0, 0);
 
