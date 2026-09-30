@@ -696,6 +696,42 @@ setTimeout(() => {
       gap(m0, at(loop)) < 1e-9 && gap(m0, at(loop / 3)) > 0.01, `after a cycle ${gap(m0, at(loop)).toExponential(1)}, a third of the way ${gap(m0, at(loop / 3)).toFixed(3)}`);
   }
 
+  // Moebius fade and wrap, from look3d's drawn rings and weights. (1) Streaming, a ring leaving at
+  // one pole reappears at the other: every such jump (seen as the ring's points moving far in one
+  // small time step) must happen while the ring is invisible -- the pop Scott saw -- and jumps must
+  // actually occur, or the check proves nothing. (2) The fade is where a ring is, not which ring:
+  // one ring slot later, the picture, weights included, is the same set of rings as before (with
+  // the fade by ring number it moved one ring along each slot).
+  {
+    const base = { gen: "mobius", rings: 12, mbSpread: 4, drift: 0.8, mbSize: 0.45 };
+    let jumps = 0, worstVisible = 0;
+    for (const extra of [{ fade: 0 }, { fade: 0.9, fadeFrom: "ends", fadeCurve: 1.5 }, { fade: 0.7, fadeFrom: "first" }]) {
+      const p = Object.assign(t.defaults(), base, extra);
+      const dt = 0.01, slot = p.mbSpread / p.rings / (0.25 * p.drift);
+      let prev = t.look3d(p, 0, 90);
+      for (let time = dt; time < 2 * slot * p.rings / 3; time += dt) {
+        const cur = t.look3d(p, time, 90);
+        cur.rings.forEach((r, k) => {
+          const a = prev.rings[k].pre, b = r.pre;
+          let move = 0; for (let i = 0; i < a.length; i++) move = Math.max(move, Math.abs(a[i] - b[i]));
+          if (move > 0.3) { jumps++; worstVisible = Math.max(worstVisible, prev.rings[k].w, r.w); }
+        });
+        prev = cur;
+      }
+    }
+    check("Möbius rings wrap from pole to pole only while invisible (no pop)", jumps > 0 && worstVisible < 0.05,
+      `${jumps} wraps seen, brightest at the moment of wrapping ${worstVisible.toFixed(3)}`);
+    const p = Object.assign(t.defaults(), base, { fade: 0.85, fadeFrom: "ends", fadeCurve: 1.3 });
+    const slot = p.mbSpread / p.rings / (0.25 * p.drift);
+    const key = f => f.rings.map(r => ({ w: r.w, x: r.pre[0], y: r.pre[1] })).sort((a, b) => a.x - b.x || a.y - b.y);
+    let worst = 0;
+    for (const time of [0.37, 1.9, 4.4]) {
+      const A = key(t.look3d(p, time, 60)), B = key(t.look3d(p, time + slot, 60));
+      A.forEach((r, i) => { worst = Math.max(worst, Math.abs(r.w - B[i].w), Math.abs(r.x - B[i].x), Math.abs(r.y - B[i].y)); });
+    }
+    check("Möbius ring fade follows the place along the spiral, not the ring", worst < 1e-9, `one slot later, rings and weights off by ${worst.toExponential(1)}`);
+  }
+
   // Pendulum Period's log slider track: ends at 4 and 720 s, 30 s round-trips exactly and sits well
   // into the track (a plain 4-720 track put it at 3.6%), and Mutate nudges it by at most 180^0.08
   // (x1.52) either way rather than +-57 s.

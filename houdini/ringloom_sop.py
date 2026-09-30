@@ -529,7 +529,7 @@ def ring_world(p, k, N, M, time, mats):
         # fixed points 0 and infinity to the poles -1 and +1. Rings sit evenly in t across Spread and
         # cycle round it with Drift (page ringPre, which explains the huge arcs near z's pole w = 1).
         L = p["mbSpread"]
-        tt = -L / 2 + math.fmod(math.fmod((k + 0.5) * L / N + p["drift"] * time * 0.25, L) + L, L)
+        tt = -L / 2 + mobius_slot(p, k, N, time)
         gm, ph = math.exp(tt), p["mbTwist"] * tt
         lr, li = gm * math.cos(ph), gm * math.sin(ph)
         ar, ai = p["mbSize"] * px - 1, p["mbSize"] * py
@@ -594,14 +594,25 @@ def kaleido_copies(p):
     return out
 
 
-def fade_weights(p, N):
+def mobius_slot(p, k, N, time):
+    """Where ring k sits along the Moebius spiral, 0 to Spread (page mobiusSlot)."""
+    L = p["mbSpread"]
+    return math.fmod(math.fmod((k + 0.5) * L / N + p["drift"] * time * 0.25, L) + L, L)
+
+
+def fade_weights(p, N, time):
     """Ring fade (page fadeWeight): each ring's brightness, 1 - fade * x ** curve, x running 0 -> 1
-    toward the faded end."""
-    if not p["fade"]:
-        return np.ones(N)
+    toward the faded end. On the Moebius spiral x follows where the ring is along the spiral, and
+    the ring wrapping from one pole to the other crossfades (page explains)."""
     u = np.arange(N) / (N - 1) if N > 1 else np.zeros(N)
+    edge = np.ones(N)
+    if p["gen"] == "mobius":
+        u = np.array([mobius_slot(p, k, N, time) for k in range(N)]) / p["mbSpread"]
+        edge = np.clip(u * N, 0, 1) * np.clip((1 - u) * N, 0, 1)
+    if not p["fade"]:
+        return edge
     x = {"first": 1 - u, "ends": np.abs(2 * u - 1), "middle": 1 - np.abs(2 * u - 1)}.get(p["fadeFrom"], u)
-    return 1 - p["fade"] * x ** p["fadeCurve"]
+    return edge * (1 - p["fade"] * x ** p["fadeCurve"])
 
 
 def look3d(p, time, M=None):
@@ -614,7 +625,7 @@ def look3d(p, time, M=None):
     rgb = np.array([color(colour_u(p, k, N)) for k in range(N)], dtype=np.float64)
     m = jsround(p["mirror"])
     return {
-        "pre": pre, "rgb": rgb, "w": fade_weights(p, N),
+        "pre": pre, "rgb": rgb, "w": fade_weights(p, N, time),
         # rotate and spin are kept apart (with time) for blends; rot is the angle actually used.
         "view": dict(view_at(p, time), rot=p["rotate"] + p["spin"] * time,
                      rotate=p["rotate"], spin=p["spin"], time=time, k=persp_k(p["persp"]), zoom=p["zoom"]),

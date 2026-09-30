@@ -31,6 +31,9 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
     bend conformally. Spread (how far into the poles), Twist, Ring size; Drift streams the rings
     along the spiral, a seamless loop (pair it with Loop colours). A tight Twist with big rings
     swings a few rings out into huge arcs where they pass the map's pole: the true image.
+    Ring fade here runs on each ring's place along the spiral (0 at one pole, 1 at the other)
+    rather than its number, so it stays put while the rings stream through it; and the ring
+    wrapping from one pole to the other crossfades with its neighbour, so nothing pops on.
   - *Two-ellipse blend* - interpolates a start ellipse into an end ellipse.
   - *Two Lanes (measured)* - 31 ellipses measured from the Two Lanes "Searching" cover. The two
     outermost are near-circles whose measured angles were noise, so they follow the fitted trend

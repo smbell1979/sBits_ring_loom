@@ -105,6 +105,8 @@ looks.push(["pendulum short period", Object.assign(t.defaults(), { gen: "pendulu
 looks.push(["mobius circles", Object.assign(t.defaults(), { gen: "mobius", rings: 18 })]);
 looks.push(["mobius star", Object.assign(t.defaults(), { gen: "mobius", base: "star", sides: 5, rings: 22, mbTwist: -2.1, mbSpread: 9.5, drift: 0.9 })]);
 looks.push(["mobius heart wobble", Object.assign(t.defaults(), { gen: "mobius", base: "heart", rings: 15, mbSize: 0.5, wobble: 0.2, drift: 1.7, mbSpread: 4 })]);
+// Ring fade on the Moebius spiral runs on the place along the spiral, with the wrap crossfade.
+looks.push(["mobius fade ends", Object.assign(t.defaults(), { gen: "mobius", rings: 14, mbSpread: 4.5, drift: 1.1, fade: 0.8, fadeFrom: "ends", fadeCurve: 1.6 })]);
 looks.push(["mobius big arcs", Object.assign(t.defaults(), { gen: "mobius", rings: 30, mbTwist: 2.9, mbSize: 0.6, zoom: 0.4 })]);
 looks.push(["roll+mirror", Object.assign(t.defaults(), { gen: "slinky", roll: 75, pitch: 30, mirror: 5, rings: 20 })]);
 

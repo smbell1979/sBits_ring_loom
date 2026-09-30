@@ -1072,7 +1072,7 @@ function ringPre(k, N, M, time, ctx) {
     // ring's shape gets near it only when the spiral passes its angle close to |w| = 1, which
     // needs a tight Twist with a big Ring size, and swings that ring out into a huge arc -- the
     // true image, not an error.
-    const L = p.mbSpread, tt = -L / 2 + (((k + 0.5) * L / N + p.drift * time * 0.25) % L + L) % L;
+    const L = p.mbSpread, tt = -L / 2 + mobiusSlot(p, k, N, time);
     const g = Math.exp(tt), ph = p.mbTwist * tt;
     mob = { lr: g * Math.cos(ph), li: g * Math.sin(ph), r: p.mbSize };
   }
@@ -1176,11 +1176,28 @@ function kaleidoCopies(p) {
 // the faded end: the last rings, the first, both ends (0 in the middle), or the middle (0 at both
 // ends). Curve 1 is a straight ramp; above 1 the fade comes late and steep, below 1 early. It's
 // the ring's brightness share, so blends morph it and Houdini gets it as Alpha.
-function fadeWeight(p, k, N) {
-  if (!p.fade) return 1;
-  const u = N > 1 ? k / (N - 1) : 0;
+// Where ring k sits along the Moebius spiral at this time: 0 to Spread, from the pole rings
+// stream out of to the one they stream into. Rings sit evenly and cycle round as Drift moves them.
+function mobiusSlot(p, k, N, time) {
+  const L = p.mbSpread;
+  return (((k + 0.5) * L / N + p.drift * time * 0.25) % L + L) % L;
+}
+// Ring k's brightness: 1 - Ring fade x (distance toward the faded end)^curve. Rings are placed by
+// their number everywhere except the Moebius spiral, whose rings stream along it: there the fade
+// runs on where the ring is (0 at one pole, 1 at the other), since by number the faded rings
+// travelled with the stream and "both ends" faded two moving rings. And a ring streaming off one
+// pole comes back at the other, so the ring in the last slot before a pole fades out as the one
+// entering the first slot fades in (their two weights always sum to 1): without it, rings popped
+// on at full brightness, fade or no fade.
+function fadeWeight(p, k, N, time) {
+  let u = N > 1 ? k / (N - 1) : 0, edge = 1;
+  if (p.gen === "mobius") {
+    u = mobiusSlot(p, k, N, time) / p.mbSpread;
+    edge = clamp(u * N, 0, 1) * clamp((1 - u) * N, 0, 1);
+  }
+  if (!p.fade) return edge;
   const x = p.fadeFrom === "first" ? 1 - u : p.fadeFrom === "ends" ? Math.abs(2 * u - 1) : p.fadeFrom === "middle" ? 1 - Math.abs(2 * u - 1) : u;
-  return 1 - p.fade * Math.pow(x, p.fadeCurve);
+  return edge * (1 - p.fade * Math.pow(x, p.fadeCurve));
 }
 // View motion: the look's yaw, pitch and roll at clock time -- the slider value, plus a sine swing
 // (Swing, amplitude +-swing) or continuous turning (Turn +/-, 360 per cycle), one cycle per
@@ -1204,7 +1221,7 @@ function look3d(p, time, M) {
   const ang = { pitch: vm.pitch, yaw: vm.yaw, roll: vm.roll, rot: p.rotate + p.spin * time };
   const rings = [];
   for (let k = 0; k < N; k++) {
-    rings.push({ pre: ringPre(k, N, M, time, ctx), rgb: color(colourU(p, k, N)), w: fadeWeight(p, k, N), ang });
+    rings.push({ pre: ringPre(k, N, M, time, ctx), rgb: color(colourU(p, k, N)), w: fadeWeight(p, k, N, time), ang });
   }
   return {
     rings, time,
@@ -1670,7 +1687,7 @@ function buildControls() {
       rampCanvas.setAttribute("aria-label", "Ring colour preview");
       rampFadeCanvas = document.createElement("canvas");
       rampFadeCanvas.className = "ramp fade";
-      rampFadeCanvas.title = "Each ring's brightness from Ring fade (white: full, black: faded out), lined up with the colours above.";
+      rampFadeCanvas.title = "Each ring's brightness from Ring fade (white: full, black: faded out), lined up with the colours above. On the Möbius spiral: brightness along the spiral from pole to pole, which the rings stream through.";
       rampFadeCanvas.setAttribute("role", "img");
       rampFadeCanvas.setAttribute("aria-label", "Ring fade preview");
       rr.append(document.createElement("span"), rampCanvas, document.createElement("span"), rampFadeCanvas);
@@ -1690,7 +1707,7 @@ function drawRamp(time) {
   if (!w || !h || !fh) return;  // the Look panel is collapsed
   const N = Math.max(1, Math.round(params.rings));
   const shift = params.cycle ? time * params.cycle / 360 : 0;
-  const key = [w, h, fh, N, params.palette, params.spread, params.colorA, params.colorB, shift, params.loopColors, params.fade, params.fadeCurve, params.fadeFrom].join("|");
+  const key = [w, h, fh, N, params.palette, params.spread, params.colorA, params.colorB, shift, params.loopColors, params.fade, params.fadeCurve, params.fadeFrom, params.gen].join("|");
   if (key === rampKey) return;
   rampKey = key;
   for (const [v, vh] of [[cv, h], [fv, fh]]) { if (v.width !== w) v.width = w; if (v.height !== vh) v.height = vh; }
@@ -1699,7 +1716,7 @@ function drawRamp(time) {
     const x0 = Math.round(k * w / N), x1 = Math.round((k + 1) * w / N), sw = Math.max(1, x1 - x0);
     c.fillStyle = rgbToHex(...color(colourU(params, k, N)));
     c.fillRect(x0, 0, sw, h);
-    const g = 255 * clamp(fadeWeight(params, k, N), 0, 1);
+    const g = 255 * clamp(fadeWeight(params, k, N, 0), 0, 1);  // Moebius: along the spiral, pole to pole
     fc.fillStyle = rgbToHex(g, g, g);
     fc.fillRect(x0, 0, sw, fh);
   }
