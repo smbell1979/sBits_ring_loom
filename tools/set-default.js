@@ -6,10 +6,10 @@
 //   node tools/set-default.js ... --still                   a sequence that doesn't start playing
 //   node tools/set-default.js --clear [--apply]             back to the built-in example
 //
-// The usual file is default.ringloom.json in the repo root: overwrite it with the page's "To file"
+// The usual file is default.ringloom.json in the repo root: overwrite it with the page's "Sequence to file"
 // save and rerun, so there's no filename to track down. It is committed with the page, so git
 // history shows which file each default came from. Any file the page saves works: a sequence
-// ("To file", or File in the saved list) or a single look ("Look file"). A sequence of two or more
+// ("Sequence to file", or File in the saved list) or a single look ("Look to file"). A sequence of two or more
 // looks plays on the first visit unless --still.
 //
 // Before anything is written, the new page is booted in a stub browser with empty storage, i.e.
@@ -123,7 +123,7 @@ console.log("Current default: " + (cur ? `${cur.source || "a saved file"} -> ` :
 if (current.errors.length) console.log("  (the page reports: " + current.errors.join("; ") + ")");
 if (!clear && !files.length) {
   if (!fs.existsSync(DEFAULT_FILE)) {
-    console.error(`\nNo file given and no ${path.basename(DEFAULT_FILE)} in the repo root. Save a sequence there with the page's "To file", or name a file.`);
+    console.error(`\nNo file given and no ${path.basename(DEFAULT_FILE)} in the repo root. Save a sequence there with the page's "Sequence to file", or name a file.`);
     process.exit(1);
   }
   files.push(DEFAULT_FILE);
@@ -136,7 +136,7 @@ if (!clear) {
   try { text = fs.readFileSync(file, "utf8"); } catch (err) { console.error(`Can't read ${file}: ${err.message}`); process.exit(1); }
   try { raw = JSON.parse(text); } catch { console.error(`${file} isn't JSON.`); process.exit(1); }
   if (!raw || !Array.isArray(raw.sequence) || !raw.sequence.length) {
-    console.error(`${file} has no looks in it. Save a sequence with "To file" or a single look with "Look".`);
+    console.error(`${file} has no looks in it. Save a sequence with "Sequence to file" or a single look with "Look to file".`);
     process.exit(1);
   }
   // "<" escaped so a name containing "</script>" can't end the page's script early.

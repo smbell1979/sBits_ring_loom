@@ -259,6 +259,11 @@ summary .sub { text-transform: none; letter-spacing: 0; font-weight: 400; color:
   min-width: 0; background: var(--panel-2); border: 1px solid var(--line); color: var(--fg);
   border-radius: 4px; padding: 6px 8px; font: 13px var(--ui);
 }
+/* On a phone one row squeezed the name box to a sliver, so the file buttons get a row of their own. */
+@media (max-width: 520px) {
+  .lib-save { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .lib-save #fileSave { grid-column: 1 / 3; justify-self: start; }
+}
 .lib { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .lib li {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center;
@@ -429,7 +434,7 @@ textarea {
         <span class="dock-title">Save</span>
         <button class="btn" id="savePng" type="button" disabled>PNG</button>
         <button class="btn" id="saveSvg" type="button" disabled title="The current frame as vector paths, without glow or trails, for Illustrator or After Effects.">SVG</button>
-        <button class="btn" id="saveLook" type="button" disabled title="Saves just the look on screen as a .ringloom.json. Your sequence isn't changed.">Look file</button>
+        <button class="btn" id="saveLook" type="button" disabled title="Saves just the look on screen as a .ringloom.json. Your sequence isn't changed.">Look to file</button>
         <select id="recLen" aria-label="Clip length">
           <option value="4">4 s clip</option>
           <option value="8" selected>8 s clip</option>
@@ -450,14 +455,14 @@ textarea {
         <label for="seqName" class="dock-title">Sequence</label>
         <input id="seqName" type="text" maxlength="60" autocomplete="off" placeholder="Name it to save">
         <button class="btn primary" id="libSave" type="button" title="Keep this sequence in this browser's list below.">Save</button>
-        <button class="btn" id="fileSave" type="button" disabled title="Save the sequence as a .ringloom.json that opens on any computer, or in Houdini.">To file</button>
+        <button class="btn" id="fileSave" type="button" disabled title="Save the sequence as a .ringloom.json that opens on any computer, or in Houdini.">Sequence to file</button>
         <button class="btn" id="fileOpen" type="button" title="Open a sequence or look file.">Open…</button>
         <input id="fileIn" type="file" accept=".json,application/json" hidden>
       </div>
       <div class="status" id="status" role="status">Checking save access…</div>
       <div class="status" id="libStatus" role="status"></div>
       <div class="savebar" id="syncRow" aria-label="Sync between devices"></div>
-      <h3 class="dock-title" title="This list lives in this browser, and on every device sharing its sync code. Use To file for a copy that opens on any computer, or to send to someone.">Saved in this browser<span class="sub" id="libSub"></span></h3>
+      <h3 class="dock-title" title="This list lives in this browser, and on every device sharing its sync code. Use Sequence to file for a copy that opens on any computer, or to send to someone.">Saved in this browser<span class="sub" id="libSub"></span></h3>
       <ul class="lib" id="libList" aria-label="Sequences saved in this browser"></ul>
     </div>
   </aside>
@@ -493,7 +498,7 @@ textarea {
     <ul>
       <li><b>Clips</b> are rendered frame by frame at a constant 60 fps with an exact frame count, not filmed, so they needn't play in real time. <b>MP4 · H.264</b> is a plain file that Nuke, Resolve, Premiere and phones read. <b>WebM · VP9</b> is smaller. <b>MOV · lossless</b> is a QuickTime with PNG-compressed RGB frames: no chroma artefacts (H.264 subsamples colour, which frays thin coloured lines), and <code>ffmpeg -i in.mov -c:v prores_ks -profile:v 3 -pix_fmt yuv422p10le out.mov</code> makes ProRes 422 HQ from it with nothing lost. <b>PNG frames · zip</b> is a numbered, lossless sequence (background painted in) for compositing. A 2-minute MP4 is about 250 MB and is held in memory until saved; PNG frames run to gigabytes, so keep those short.</li>
       <li><b>One loop of this look</b> is seamless: frame N is frame 0 again, no frame repeated or dropped; with Trails on, a silent loop runs first so the seam carries the same trails. <b>One sequence loop</b> is exact in length, but its seam only matches if the looks' own motions happen to line up over the sequence: each look's clock runs on through the whole sequence.</li>
-      <li><b>Look file</b> saves the look on screen as .ringloom.json; <b>To file</b> the whole sequence. Both open here, or in Houdini through the Ring Loom SOP. <b>Save</b> keeps a sequence in this browser only.</li>
+      <li><b>Look to file</b> saves the look on screen as .ringloom.json; <b>Sequence to file</b> the whole sequence. Both open here, or in Houdini through the Ring Loom SOP. <b>Save</b> keeps a sequence in this browser only.</li>
       <li><b>SVG</b> is the current frame as vector paths (or dots), without glow or trails, for Illustrator or After Effects. <b>PNG</b> is the frame as shown.</li>
       <li><b>Sync</b> shares favourites and saved sequences between your devices: <b>New code</b> makes a sync code (three words and a number) for this library; <b>Enter code…</b> on another device joins it, and both libraries become one. Each device keeps its own copy and works offline; after any change, and on every load, it syncs. Two devices editing apart never lose each other's changes: per item the later change wins, and deletions carry across for 30 days. Anyone with the code has the library, so treat it like a password. History stays on its device.</li>
     </ul>
@@ -2594,7 +2599,7 @@ function libraryUpsert(list, entry) {
 function parseSequenceFile(text, fallbackName) {
   let obj;
   try { obj = JSON.parse(text); } catch { throw new Error("That file isn't a Ring Loom sequence: it isn't JSON."); }
-  if (!obj || !Array.isArray(obj.sequence)) throw new Error("That file has no sequence in it. Save one with Save to file first.");
+  if (!obj || !Array.isArray(obj.sequence)) throw new Error("That file has no sequence in it. Save one with Sequence to file first.");
   const cards = obj.sequence.map(cleanCard).filter(Boolean);
   const skipped = obj.sequence.length - cards.length;
   if (!cards.length) throw new Error(`None of the ${obj.sequence.length} looks in that file could be read.`);

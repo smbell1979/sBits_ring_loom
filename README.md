@@ -310,7 +310,7 @@ animating on its own, with a three-look example sequence loaded but not playing.
 visitors see their own last settings instead, which the browser remembers per device.
 
 The current default is `default.ringloom.json` in the repo root. To change it, save a sequence
-from the page with **To file** (or a single look with **Look file**) over that file, then:
+from the page with **Sequence to file** (or a single look with **Look to file**) over that file, then:
 
 ```bash
 node tools/set-default.js
