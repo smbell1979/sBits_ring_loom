@@ -44,6 +44,10 @@ little more than the last, drawn as additive light. Live at https://ring-loom.ve
     drawing the strip itself; 1 is round, where the twist can't show on circles) and Half twists
     (odd: one-sided). Drift carries the rings round the strip; a loop has no ends, so nothing pops.
   - *Two-ellipse blend* - interpolates a start ellipse into an end ellipse.
+    Spacing above 1 crowds the rings toward the start ellipse, below 1 toward the end. Below 1 it
+    is the mirror image of the curve above 1: the plain power curve it used to be started
+    infinitely steep and left the first ring on its own (10.8x the average gap at 0.3; even the
+    default 0.8 showed it), so looks saved with Spacing under 1 now draw a little differently.
   - *Two Lanes (measured)* - 31 ellipses measured from the Two Lanes "Searching" cover. The two
     outermost are near-circles whose measured angles were noise, so they follow the fitted trend
     of the rest (otherwise Minor scale or Side flare turned the outer ring 70 degrees off).

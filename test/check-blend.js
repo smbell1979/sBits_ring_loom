@@ -774,6 +774,21 @@ setTimeout(() => {
     check("a look saved as the old Möbius spiral opens as the Loxodromic spiral, settings kept", old.gen === "loxo" && old.mbTwist === 2.25 && old.mbSize === 0.41, `gen ${old.gen}`);
   }
 
+  // Two-ellipse blend Spacing: no orphaned ring. Gaps between neighbouring rings are measured on
+  // the drawn rings (curveGap); the largest must sit beside one nearly as large (within 1.3x),
+  // rather than stand alone as the first did below Spacing 1 (10.8x the average, next 2.5x).
+  {
+    const bad = [];
+    for (const ease of [0.3, 0.5, 0.8, 1, 1.5, 3]) {
+      const p = Object.assign(t.defaults(), { gen: "blend", rings: 31, ease, drift: 0, wobble: 0, mirror: 1 });
+      const R = t.computeFrame(p, 0, 600, 180).rings.map(r => r.pts);
+      const g = R.slice(1).map((r, i) => curveGap(R[i], r));
+      const i = g.indexOf(Math.max(...g)), nb = Math.max(i > 0 ? g[i - 1] : 0, i + 1 < g.length ? g[i + 1] : 0);
+      if (g[i] > 1.3 * nb) bad.push(`spacing ${ease}: gap ${i} is ${g[i].toFixed(1)} px beside ${nb.toFixed(1)}`);
+    }
+    check("two-ellipse blend: no ring left on its own at any Spacing", bad.length === 0, bad.join("; ") || "0.3 / 0.5 / 0.8 / 1 / 1.5 / 3");
+  }
+
   // Pendulum Period's log slider track: ends at 4 and 720 s, 30 s round-trips exactly and sits well
   // into the track (a plain 4-720 track put it at 3.6%), and Mutate nudges it by at most 180^0.08
   // (x1.52) either way rather than +-57 s.

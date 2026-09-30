@@ -112,6 +112,8 @@ looks.push(["loxo big arcs", Object.assign(t.defaults(), { gen: "loxo", rings: 3
 looks.push(["strip classic", Object.assign(t.defaults(), { gen: "strip", rings: 24, pitch: 50, persp: 0.4 })]);
 looks.push(["strip flat", Object.assign(t.defaults(), { gen: "strip", rings: 30, msFlat: 0, msWidth: 0.4, yaw: -35, pitch: 40 })]);
 looks.push(["strip 3 twists star", Object.assign(t.defaults(), { gen: "strip", base: "star", sides: 5, rings: 20, msTwists: 3, msFlat: 0.5, wobble: 0.15, drift: 0.9, pitch: 65 })]);
+// Two-ellipse blend Spacing either side of 1 (below 1 is the mirrored curve).
+for (const ease of [0.3, 0.8, 2.6]) looks.push([`blend spacing ${ease}`, Object.assign(t.defaults(), { gen: "blend", rings: 17, ease })]);
 looks.push(["roll+mirror", Object.assign(t.defaults(), { gen: "slinky", roll: 75, pitch: 30, mirror: 5, rings: 20 })]);
 
 const cases = [];

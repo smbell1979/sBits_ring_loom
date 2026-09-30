@@ -399,7 +399,9 @@ def linear_mats(p, N, time):
         M1 = mat2(mat2(rot2(p["angle1"]), diag2(p["size1"], p["size1"] * p["aspect1"])), rot2(p["phase"] + p["drift"] * time * 30))
         for k in range(N):
             u = k / (N - 1) if N > 1 else 0
-            l = u ** p["ease"]
+            # Below 1, the mirror of the curve above 1 (page linearMats: u ** ease orphaned the
+            # first ring there).
+            l = u ** p["ease"] if p["ease"] >= 1 else 1 - (1 - u) ** (1 / p["ease"])
             mats.append(tuple(lerp(M0[i], M1[i], l) for i in range(4)))
     return mats
 

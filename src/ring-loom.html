@@ -960,7 +960,12 @@ function linearMats(p, N, time) {
     const M0 = mat2(rot2(p.angle0), diag2(1, p.aspect0));
     const M1 = mat2(mat2(rot2(p.angle1), diag2(p.size1, p.size1 * p.aspect1)), rot2(p.phase + p.drift * time * 30));
     for (let k = 0; k < N; k++) {
-      const u = N > 1 ? k / (N - 1) : 0, l = Math.pow(u, p.ease);
+      // Spacing above 1 crowds the rings toward the start ellipse (u^Spacing), below 1 toward the
+      // end. Below 1 this used u^Spacing too, which starts infinitely steep: with 31 rings at 0.3
+      // the first gap was 10.8x the average and the next 2.5x, leaving the start ellipse orphaned
+      // on its own. Below 1 it is now the mirror image of the curve above 1, so gaps grow smoothly
+      // to a largest of 1/Spacing x the average (3.2x at 0.3), as above 1 they reach Spacing x.
+      const u = N > 1 ? k / (N - 1) : 0, l = p.ease >= 1 ? Math.pow(u, p.ease) : 1 - Math.pow(1 - u, 1 / p.ease);
       mats.push(M0.map((v, i) => lerp(v, M1[i], l)));
     }
   }
